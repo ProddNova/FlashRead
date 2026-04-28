@@ -1,6 +1,9 @@
 <html lang="en" style="--vw: 390px; --vh: 719px;"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" id="themeColorMeta" content="#08080b">
 <title>FlashRead</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
@@ -49,6 +52,18 @@ html, body {
 body {
   position:relative;
   min-height:100%;
+}
+
+body::before {
+  content:"";
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  height:env(safe-area-inset-top);
+  background:var(--bg);
+  z-index:120;
+  pointer-events:none;
 }
 
 button, input, select {
@@ -593,6 +608,28 @@ button {
   -webkit-overflow-scrolling:touch;
   padding:14px 16px 16px;
   scrollbar-width:none;
+}
+
+.settingsQuickActions {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 16px;
+  border-bottom:1px solid var(--line);
+  background:rgba(255,255,255,.04);
+}
+
+.settingsQuickActions .btn {
+  min-height:40px;
+  border-radius:14px;
+  padding:8px 12px;
+}
+
+.settingsHint {
+  min-width:0;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.25;
 }
 
 .closeLeftBtn {
@@ -1271,7 +1308,7 @@ input[type="range"] {
   display:flex;
   align-items:center;
   justify-content:center;
-  background:#fff;
+  background:linear-gradient(150deg,var(--bg),var(--bg2) 55%,var(--bg3));
 }
 
 .loaderSpinner {
@@ -1279,8 +1316,8 @@ input[type="range"] {
   height:36px;
   border-radius:50%;
   margin:0 auto;
-  border:3px solid rgba(0,0,0,.2);
-  border-top-color:#000;
+  border:3px solid rgba(255,255,255,.25);
+  border-top-color:var(--accent);
   animation:spin .9s linear infinite;
 }
 
@@ -1444,6 +1481,11 @@ input[type="range"] {
     <div class="sheetTop">
       <button type="button" class="closeLeftBtn" id="closeSettingsBtn">×</button>
       <div class="sheetTitle">Settings</div>
+    </div>
+
+    <div class="settingsQuickActions">
+      <button type="button" class="btn secondary" id="closeSettingsTopBtn">Save & close</button>
+      <div class="settingsHint">Il tema scelto è globale per tutta la libreria.</div>
     </div>
 
     <div class="sheetBody">
@@ -1803,6 +1845,7 @@ input[type="range"] {
   let stateSaveTimer = null;
   let lastNativeHapticAt = 0;
   let themeMenuOpen = false;
+  let orientationFontFactor = window.matchMedia && window.matchMedia("(orientation: landscape)").matches ? 1.05 : 1;
   const nativeMessageHandler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.flashread;
   const nativeBridgeAvailable = !!nativeMessageHandler;
   let quickBookId = null;
@@ -1912,7 +1955,19 @@ input[type="range"] {
     const headers = Object.assign({ "Content-Type": "application/json" }, options && options.headers ? options.headers : {});
     if (authToken) headers.Authorization = "Bearer " + authToken;
 
-    const res = await fetch(path, Object.assign({}, options || {}, { headers }));
+    const timeoutMs = Math.max(2000, Number(options && options.timeoutMs || 12000));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    let res;
+    try {
+      res = await fetch(path, Object.assign({}, options || {}, { headers, signal: controller.signal }));
+    } catch (e) {
+      if (e && e.name === "AbortError") throw new Error("Timeout API (" + timeoutMs + "ms)");
+      throw e;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!res.ok) {
       let message = "Errore API";
@@ -2048,9 +2103,9 @@ input[type="range"] {
     return queueNative(async () => {
       try {
         if (kind === "state") {
-          await apiFetch("/api/state", { method: "PUT", body: JSON.stringify(data || {}) });
+          await apiFetch("/api/state", { method: "PUT", body: JSON.stringify(data || {}), timeoutMs: 7000 });
         } else if (kind === "settings") {
-          await apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(data || {}) });
+          await apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(data || {}), timeoutMs: 7000 });
         }
       } catch (e) {
         console.log("Remote small save error", e);
@@ -2066,7 +2121,8 @@ input[type="range"] {
           if (label) setStatus(label + " 50%");
           await apiFetch("/api/books/" + encodeURIComponent(String(data.id)), {
             method: "PUT",
-            body: JSON.stringify(data || {})
+            body: JSON.stringify(data || {}),
+            timeoutMs: 22000
           });
           if (label) setStatus(label + " 100%");
         }
@@ -2418,6 +2474,9 @@ input[type="range"] {
 
     if (vars.line) root.style.setProperty("--line", vars.line);
     else root.style.setProperty("--line", "rgba(255,255,255,.11)");
+
+    const themeMeta = document.getElementById("themeColorMeta");
+    if (themeMeta) themeMeta.setAttribute("content", String(vars.bg || "#08080b"));
   }
 
   function buildCustomTheme(id, name, colors) {
@@ -2602,6 +2661,14 @@ input[type="range"] {
     return out;
   }
 
+  function makeBookSettings() {
+    const out = makeSettings();
+    delete out.theme;
+    delete out.customThemes;
+    delete out.themeSnapshot;
+    return out;
+  }
+
   function getCurrentBook() {
     return library.books.find(b => b.id === currentBookId) || null;
   }
@@ -2643,7 +2710,7 @@ input[type="range"] {
     book.index = Number(index || 0);
     book.wpm = Number(wpm || 330);
     book.ctxCount = Number(ctxCount || 9);
-    book.settings = makeSettings();
+    book.settings = makeBookSettings();
     book.wordCount = words.length || book.wordCount || tokenizeCount(book.text || "");
     book.savedAt = Date.now();
 
@@ -2699,12 +2766,13 @@ input[type="range"] {
     return true;
   }
 
-  async function persistCriticalSave(reason) {
+  async function persistCriticalSave(reason, options) {
+    const opts = Object.assign({ fullBook: true }, options || {});
     readReadingControls(true);
     readSettingsFromControls(true);
     saveLocalOnly();
     const book = getCurrentBook();
-    if (book) {
+    if (book && opts.fullBook) {
       await saveCurrentBookFullNative(reason || "Priority save");
     } else {
       await nativeSmall("state", makeStatePayload());
@@ -2827,7 +2895,11 @@ input[type="range"] {
     ctxCount = Number(book.ctxCount || 9);
 
     if (book.settings) {
-      settings = sanitizeSettings(Object.assign({}, DEFAULT_SETTINGS, settings, book.settings));
+      const scoped = Object.assign({}, book.settings);
+      delete scoped.theme;
+      delete scoped.customThemes;
+      delete scoped.themeSnapshot;
+      settings = sanitizeSettings(Object.assign({}, DEFAULT_SETTINGS, settings, scoped));
     }
 
     $("wpm").value = wpm;
@@ -3307,7 +3379,7 @@ input[type="range"] {
     if (box.style.display === "none") return;
     if (!box.clientWidth) return;
 
-    const base = Math.round(84 * (settings.fontScale / 100));
+    const base = Math.round(84 * (settings.fontScale / 100) * orientationFontFactor);
     let size = Math.max(10, base);
 
     el.style.fontSize = size + "px";
@@ -3420,7 +3492,7 @@ input[type="range"] {
     updateMainUi();
 
     await runWithLoader("Salvataggio sessione…", async () => {
-      await persistCriticalSave("Exit reader");
+      await persistCriticalSave("Exit reader", { fullBook:false });
     });
 
     haptic("medium");
@@ -3801,7 +3873,7 @@ input[type="range"] {
         index: 0,
         wpm: Number(wpm || 330),
         ctxCount: Number(ctxCount || 9),
-        settings: makeSettings(),
+        settings: makeBookSettings(),
         source: "pdf",
         pages: pdf.numPages,
         wordCount: newWords.length,
@@ -3896,7 +3968,12 @@ input[type="range"] {
 
     const book = getCurrentBook();
 
-    const sessionSettings = book && book.settings ? book.settings : null;
+    const sessionSettings = book && book.settings ? Object.assign({}, book.settings) : null;
+    if (sessionSettings) {
+      delete sessionSettings.theme;
+      delete sessionSettings.customThemes;
+      delete sessionSettings.themeSnapshot;
+    }
     const globalSettings = preferNewest(getSavedSettings(), backup ? backup.settings : null);
 
     settings = sanitizeSettings(Object.assign(
@@ -3963,6 +4040,7 @@ input[type="range"] {
 
   $("settingsBtn").addEventListener("click", openSettings);
   $("closeSettingsBtn").addEventListener("click", closeSettings);
+  $("closeSettingsTopBtn").addEventListener("click", closeSettings);
   $("closeSettingsBottomBtn").addEventListener("click", closeSettings);
 
   $("themeCurrent").addEventListener("click", e => {
@@ -4364,6 +4442,7 @@ input[type="range"] {
 
   const orientationWatcher = () => {
     releaseOrientationLock();
+    orientationFontFactor = window.matchMedia && window.matchMedia("(orientation: landscape)").matches ? 1.05 : 1;
     setViewportVars();
     setTimeout(() => {
       setViewportVars();
