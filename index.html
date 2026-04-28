@@ -1672,6 +1672,12 @@ input[type="range"] {
   let lastNativeHapticAt = 0;
   let themeMenuOpen = false;
 
+  let authToken = localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "";
+  let currentUser = null;
+  let REMOTE_SESSION = null;
+  let REMOTE_SETTINGS = null;
+  let REMOTE_LIBRARY = { books: [], currentBookId: null };
+
   let library = normalizeLibrary(FILE_LIBRARY);
   let currentBookId = library.currentBookId || null;
   let settings = sanitizeSettings(Object.assign({}, DEFAULT_SETTINGS));
@@ -1738,58 +1744,94 @@ input[type="range"] {
     return nativeQueue;
   }
 
-  function nativeSmall(kind, data) {
-    const raw = encodeURIComponent(JSON.stringify(data || {}));
+  async function apiFetch(path, options) {
+    const headers = Object.assign({ "Content-Type": "application/json" }, options && options.headers ? options.headers : {});
+    if (authToken) headers.Authorization = "Bearer " + authToken;
 
+    const res = await fetch(path, Object.assign({}, options || {}, { headers }));
+
+    if (!res.ok) {
+      let message = "Errore API";
+      try {
+        const payload = await res.json();
+        message = payload.error || message;
+      } catch (e) {}
+      throw new Error(message + " (" + res.status + ")");
+    }
+
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  async function loginAuto() {
+    if (authToken) return true;
+
+    const login = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "jack", password: "Giacomo090665" })
+    });
+
+    if (!login.ok) return false;
+
+    const payload = await login.json();
+    authToken = payload.token || "";
+    currentUser = payload.user || null;
+
+    if (authToken) {
+      localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
+    }
+
+    return !!authToken;
+  }
+
+  async function loadRemoteBootstrap() {
+    const ok = await loginAuto();
+    if (!ok) return;
+
+    try {
+      const payload = await apiFetch("/api/bootstrap");
+      REMOTE_SESSION = payload.session || null;
+      REMOTE_SETTINGS = payload.settings || null;
+      REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
+      setStatus("Login automatico attivo: " + (currentUser ? currentUser.username : "jack"));
+    } catch (e) {
+      console.log("Remote bootstrap error", e);
+      setStatus("Backend non raggiungibile: uso salvataggio locale.");
+    }
+  }
+
+  function nativeSmall(kind, data) {
     return queueNative(async () => {
-      nativeOpen("flashread://" + kind + "?data=" + raw + "&ts=" + encodeURIComponent(String(Date.now())));
-      await sleep(80);
+      try {
+        if (kind === "state") {
+          await apiFetch("/api/state", { method: "PUT", body: JSON.stringify(data || {}) });
+        } else if (kind === "settings") {
+          await apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(data || {}) });
+        }
+      } catch (e) {
+        console.log("Remote small save error", e);
+      }
+      await sleep(40);
     });
   }
 
   function nativeChunked(kind, data, label) {
     return queueNative(async () => {
-      let encoded = "";
-
       try {
-        encoded = encodeURIComponent(JSON.stringify(data || {}));
-      } catch (e) {
-        setStatus("Errore durante la preparazione del salvataggio.");
-        return;
-      }
-
-      let b64 = "";
-
-      try {
-        b64 = btoa(encoded);
-      } catch (e) {
-        setStatus("Errore durante la codifica del salvataggio.");
-        return;
-      }
-
-      const id = String(Date.now()) + "-" + Math.floor(Math.random() * 999999);
-      const size = 1900;
-      const total = Math.ceil(b64.length / size);
-
-      for (let i = 0; i < total; i++) {
-        const chunk = b64.slice(i * size, i * size + size);
-
-        nativeOpen(
-          "flashread://" + kind +
-          "?id=" + encodeURIComponent(id) +
-          "&i=" + encodeURIComponent(String(i)) +
-          "&t=" + encodeURIComponent(String(total)) +
-          "&c=" + encodeURIComponent(chunk)
-        );
-
-        if (label && (i === 0 || i % 8 === 0 || i === total - 1)) {
-          setStatus(label + " " + Math.round(((i + 1) / total) * 100) + "%");
+        if (kind === "bookupsert" && data && data.id) {
+          if (label) setStatus(label + " 50%");
+          await apiFetch("/api/books/" + encodeURIComponent(String(data.id)), {
+            method: "PUT",
+            body: JSON.stringify(data || {})
+          });
+          if (label) setStatus(label + " 100%");
         }
-
-        await sleep(55);
+      } catch (e) {
+        console.log("Remote chunked save error", e);
+        setStatus("Salvataggio remoto fallito: dati in locale.");
       }
-
-      await sleep(160);
+      await sleep(40);
     });
   }
 
@@ -1955,11 +1997,11 @@ input[type="range"] {
   }
 
   function getSaved() {
-    return preferNewest(FILE_SESSION, getLocalJson(KEY));
+    return preferNewest(preferNewest(FILE_SESSION, REMOTE_SESSION), getLocalJson(KEY));
   }
 
   function getSavedSettings() {
-    return preferNewest(FILE_SETTINGS, getLocalJson(SETTINGS_KEY));
+    return preferNewest(preferNewest(FILE_SETTINGS, REMOTE_SETTINGS), getLocalJson(SETTINGS_KEY));
   }
 
   function normalizeLibrary(data) {
@@ -1972,17 +2014,17 @@ input[type="range"] {
   function getLibrary() {
     const local = normalizeLibrary(getLocalJson(LIBRARY_KEY));
     const file = normalizeLibrary(FILE_LIBRARY);
+    const remote = normalizeLibrary(REMOTE_LIBRARY);
 
-    if (local.books.length && file.books.length) {
-      const localNewest = Math.max(...local.books.map(b => Number(b.savedAt || 0)), 0);
-      const fileNewest = Math.max(...file.books.map(b => Number(b.savedAt || 0)), 0);
-      return localNewest >= fileNewest ? local : file;
+    function newest(lib) {
+      return Math.max(...(lib.books || []).map(b => Number(b.savedAt || 0)), 0);
     }
 
-    if (local.books.length) return local;
-    if (file.books.length) return file;
+    const sources = [local, remote, file].filter(lib => lib.books.length);
+    if (!sources.length) return { books: [], currentBookId: null };
 
-    return { books: [], currentBookId: null };
+    sources.sort((a, b) => newest(b) - newest(a));
+    return sources[0];
   }
 
   function makeId() {
@@ -2434,7 +2476,16 @@ input[type="range"] {
       localStorage.removeItem(LIBRARY_KEY);
     } catch (e) {}
 
+    localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
     nativeOpen("flashread://clear?ts=" + encodeURIComponent(String(Date.now())));
+
+    queueNative(async () => {
+      try {
+        await apiFetch("/api/clear", { method: "POST", body: JSON.stringify({}) });
+      } catch (e) {
+        console.log("Clear remote error", e);
+      }
+    });
   }
 
   function getBookProgress(book) {
@@ -2556,12 +2607,13 @@ input[type="range"] {
 
     saveLocalOnly();
 
-    nativeOpen(
-      "flashread://delete" +
-      "?id=" + encodeURIComponent(String(id)) +
-      "&currentBookId=" + encodeURIComponent(String(currentBookId || "")) +
-      "&ts=" + encodeURIComponent(String(Date.now()))
-    );
+    queueNative(async () => {
+      try {
+        await apiFetch("/api/books/" + encodeURIComponent(String(id)), { method: "DELETE" });
+      } catch (e) {
+        console.log("Delete remote error", e);
+      }
+    });
 
     setTimeout(forceSaveNow, 250);
 
@@ -3905,7 +3957,12 @@ input[type="range"] {
     if (currentBookId) saveStateNativeNow();
   }, 5000);
 
-  loadInitialFields();
+  async function initializeApp() {
+    await loadRemoteBootstrap();
+    loadInitialFields();
+  }
+
+  initializeApp();
 })();
 </script>
 
