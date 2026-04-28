@@ -1677,6 +1677,7 @@ input[type="range"] {
   let REMOTE_SESSION = null;
   let REMOTE_SETTINGS = null;
   let REMOTE_LIBRARY = { books: [], currentBookId: null };
+  const MIGRATION_KEY = "FLASHREAD_MIGRATED_JACK";
 
   let library = normalizeLibrary(FILE_LIBRARY);
   let currentBookId = library.currentBookId || null;
@@ -1766,15 +1767,23 @@ input[type="range"] {
   async function loginAuto() {
     if (authToken) return true;
 
-    const login = await fetch("/api/auth/login", {
+    let authRes = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: "jack", password: "Giacomo090665" })
     });
 
-    if (!login.ok) return false;
+    if (!authRes.ok) {
+      authRes = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "jack", password: "Giacomo090665" })
+      });
+    }
 
-    const payload = await login.json();
+    if (!authRes.ok) return false;
+
+    const payload = await authRes.json();
     authToken = payload.token || "";
     currentUser = payload.user || null;
 
@@ -1785,12 +1794,51 @@ input[type="range"] {
     return !!authToken;
   }
 
+  async function migrateLocalDataToJack() {
+    if (!authToken) return;
+    if (localStorage.getItem(MIGRATION_KEY) === "1") return;
+
+    const localSession = getLocalJson(KEY) || FILE_SESSION || null;
+    const localSettings = getLocalJson(SETTINGS_KEY) || FILE_SETTINGS || null;
+    const localLibrary = normalizeLibrary(getLocalJson(LIBRARY_KEY) || FILE_LIBRARY);
+
+    const remoteHasData =
+      !!REMOTE_SESSION ||
+      !!REMOTE_SETTINGS ||
+      (REMOTE_LIBRARY && Array.isArray(REMOTE_LIBRARY.books) && REMOTE_LIBRARY.books.length > 0);
+
+    if (remoteHasData) {
+      localStorage.setItem(MIGRATION_KEY, "1");
+      return;
+    }
+
+    try {
+      if (localSettings) await apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(localSettings) });
+      if (localSession) await apiFetch("/api/state", { method: "PUT", body: JSON.stringify(localSession) });
+      for (const book of localLibrary.books || []) {
+        await apiFetch("/api/books/" + encodeURIComponent(String(book.id)), {
+          method: "PUT",
+          body: JSON.stringify(book)
+        });
+      }
+      localStorage.setItem(MIGRATION_KEY, "1");
+      setStatus("Dati migrati su account jack.");
+    } catch (e) {
+      console.log("Migration to jack error", e);
+    }
+  }
+
   async function loadRemoteBootstrap() {
     const ok = await loginAuto();
     if (!ok) return;
 
     try {
-      const payload = await apiFetch("/api/bootstrap");
+      let payload = await apiFetch("/api/bootstrap");
+      REMOTE_SESSION = payload.session || null;
+      REMOTE_SETTINGS = payload.settings || null;
+      REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
+      await migrateLocalDataToJack();
+      payload = await apiFetch("/api/bootstrap");
       REMOTE_SESSION = payload.session || null;
       REMOTE_SETTINGS = payload.settings || null;
       REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
@@ -1997,10 +2045,12 @@ input[type="range"] {
   }
 
   function getSaved() {
+    if (authToken && REMOTE_SESSION) return REMOTE_SESSION;
     return preferNewest(preferNewest(FILE_SESSION, REMOTE_SESSION), getLocalJson(KEY));
   }
 
   function getSavedSettings() {
+    if (authToken && REMOTE_SETTINGS) return REMOTE_SETTINGS;
     return preferNewest(preferNewest(FILE_SETTINGS, REMOTE_SETTINGS), getLocalJson(SETTINGS_KEY));
   }
 
@@ -2015,6 +2065,7 @@ input[type="range"] {
     const local = normalizeLibrary(getLocalJson(LIBRARY_KEY));
     const file = normalizeLibrary(FILE_LIBRARY);
     const remote = normalizeLibrary(REMOTE_LIBRARY);
+    if (authToken && remote.books.length) return remote;
 
     function newest(lib) {
       return Math.max(...(lib.books || []).map(b => Number(b.savedAt || 0)), 0);
