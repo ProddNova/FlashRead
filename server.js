@@ -28,8 +28,12 @@ app.use(express.static(path.join(__dirname)));
 
 let db;
 
+function sanitizeLanguage(value) {
+  return value === 'it' ? 'it' : 'en';
+}
+
 function userResponse(user) {
-  return { id: String(user._id), username: user.username };
+  return { id: String(user._id), username: user.username, language: sanitizeLanguage(user.language) };
 }
 
 function authMiddleware(req, res, next) {
@@ -59,6 +63,7 @@ async function ensureSeedUser() {
   await users.insertOne({
     username: seedUser.username,
     passwordHash,
+    language: 'en',
     createdAt: new Date()
   });
 }
@@ -75,6 +80,7 @@ function issueAuthPayload(user) {
 app.post('/api/auth/register', async (req, res) => {
   const username = normalizeUsername(req.body.username);
   const password = String(req.body.password || '');
+  const language = sanitizeLanguage(req.body.language);
 
   if (!/^[a-z0-9_.-]{3,32}$/.test(username)) {
     res.status(400).json({ error: 'Username non valido.' });
@@ -98,6 +104,7 @@ app.post('/api/auth/register', async (req, res) => {
   const result = await users.insertOne({
     username,
     passwordHash,
+    language,
     createdAt: new Date()
   });
 
