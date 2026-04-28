@@ -1588,11 +1588,32 @@ input[type="range"] {
           <div class="formStack">
             <button type="button" class="btn secondary" id="deselectBtn">Deseleziona documento</button>
             <button type="button" class="btn secondary" id="closeSettingsBottomBtn">Chiudi e salva</button>
+            <button type="button" class="btn secondary" id="logoutBtn">Logout account</button>
             <button type="button" class="btn danger" id="resetBtn">Azzera tutto</button>
           </div>
         </div>
 
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="modalShade" id="authModal">
+  <div class="sheet" style="max-width:440px;">
+    <div class="sheetTop">
+      <div class="sheetTitle">Accedi a FlashRead</div>
+    </div>
+    <div class="sheetBody">
+      <div class="group">
+        <div class="groupTitle">Login obbligatorio</div>
+        <div class="formStack">
+          <input id="authUsername" class="input" type="text" autocomplete="username" placeholder="Username" />
+          <input id="authPassword" class="input" type="password" autocomplete="current-password" placeholder="Password" />
+          <button type="button" class="btn" id="authLoginBtn">Accedi</button>
+          <button type="button" class="btn secondary" id="authRegisterBtn">Registrati</button>
+        </div>
+      </div>
+      <div class="hint" id="authHint">Inserisci username e password per continuare.</div>
     </div>
   </div>
 </section>
@@ -1672,14 +1693,14 @@ input[type="range"] {
   let lastNativeHapticAt = 0;
   let themeMenuOpen = false;
 
-  let authToken = localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "";
+  let authToken = "";
   let currentUser = null;
   let REMOTE_SESSION = null;
   let REMOTE_SETTINGS = null;
   let REMOTE_LIBRARY = { books: [], currentBookId: null };
-  const MIGRATION_KEY = "FLASHREAD_MIGRATED_JACK";
+  const MIGRATION_KEY = "FLASHREAD_MIGRATED_REMOTE";
 
-  let library = normalizeLibrary(FILE_LIBRARY);
+  let library = { books: [], currentBookId: null };
   let currentBookId = library.currentBookId || null;
   let settings = sanitizeSettings(Object.assign({}, DEFAULT_SETTINGS));
 
@@ -1688,6 +1709,7 @@ input[type="range"] {
   const WPM_PX = 44;
   const LOCK_PX = 38;
   const VERTICAL_DEAD_ZONE = 14;
+  const NATIVE_BRIDGE_ENABLED = /flashread-native/i.test(navigator.userAgent || "");
 
   function setViewportVars() {
     const vv = window.visualViewport;
@@ -1723,6 +1745,8 @@ input[type="range"] {
   }
 
   function nativeOpen(url) {
+    if (!NATIVE_BRIDGE_ENABLED) return;
+
     try {
       const iframe = document.createElement("iframe");
       iframe.style.width = "1px";
@@ -1764,34 +1788,42 @@ input[type="range"] {
     return res.json();
   }
 
-  async function loginAuto() {
-    if (authToken) return true;
+  async function authenticate(mode) {
+    const username = String($("authUsername").value || "").trim().toLowerCase();
+    const password = String($("authPassword").value || "");
 
-    let authRes = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "jack", password: "Giacomo090665" })
-    });
+    if (!username || !password) {
+      setStatus("Inserisci username e password.");
+      $("authHint").textContent = "Inserisci username e password validi.";
+      return false;
+    }
 
-    if (!authRes.ok) {
-      authRes = await fetch("/api/auth/register", {
+    try {
+      const payload = await fetch("/api/auth/" + mode, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "jack", password: "Giacomo090665" })
+        body: JSON.stringify({ username, password })
+      }).then(async res => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Autenticazione fallita");
+        }
+        return res.json();
       });
+
+      authToken = String(payload.token || "");
+      currentUser = payload.user || null;
+      $("authModal").classList.add("hidden");
+      $("authPassword").value = "";
+      $("authHint").textContent = "Autenticazione riuscita.";
+      setStatus("Accesso effettuato: " + (currentUser ? currentUser.username : username));
+      return true;
+    } catch (e) {
+      const msg = e && e.message ? e.message : "Autenticazione fallita";
+      $("authHint").textContent = msg;
+      setStatus(msg);
+      return false;
     }
-
-    if (!authRes.ok) return false;
-
-    const payload = await authRes.json();
-    authToken = payload.token || "";
-    currentUser = payload.user || null;
-
-    if (authToken) {
-      localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
-    }
-
-    return !!authToken;
   }
 
   async function migrateLocalDataToJack() {
@@ -1822,30 +1854,31 @@ input[type="range"] {
         });
       }
       localStorage.setItem(MIGRATION_KEY, "1");
-      setStatus("Dati migrati su account jack.");
+      setStatus("Dati locali migrati su account remoto.");
     } catch (e) {
-      console.log("Migration to jack error", e);
+      console.log("Migration to remote error", e);
     }
   }
 
   async function loadRemoteBootstrap() {
-    const ok = await loginAuto();
-    if (!ok) return;
+    if (!authToken) {
+      REMOTE_SESSION = null;
+      REMOTE_SETTINGS = null;
+      REMOTE_LIBRARY = { books: [], currentBookId: null };
+      return;
+    }
 
     try {
-      let payload = await apiFetch("/api/bootstrap");
+      const payload = await apiFetch("/api/bootstrap");
       REMOTE_SESSION = payload.session || null;
       REMOTE_SETTINGS = payload.settings || null;
       REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
-      await migrateLocalDataToJack();
-      payload = await apiFetch("/api/bootstrap");
-      REMOTE_SESSION = payload.session || null;
-      REMOTE_SETTINGS = payload.settings || null;
-      REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
-      setStatus("Login automatico attivo: " + (currentUser ? currentUser.username : "jack"));
+      currentUser = payload.user || currentUser;
+      setStatus("Sessione remota attiva: " + (currentUser ? currentUser.username : "utente"));
     } catch (e) {
       console.log("Remote bootstrap error", e);
-      setStatus("Backend non raggiungibile: uso salvataggio locale.");
+      setStatus("Errore caricamento dati account remoto.");
+      throw e;
     }
   }
 
@@ -2046,12 +2079,12 @@ input[type="range"] {
 
   function getSaved() {
     if (authToken && REMOTE_SESSION) return REMOTE_SESSION;
-    return preferNewest(preferNewest(FILE_SESSION, REMOTE_SESSION), getLocalJson(KEY));
+    return preferNewest(REMOTE_SESSION, getLocalJson(KEY));
   }
 
   function getSavedSettings() {
     if (authToken && REMOTE_SETTINGS) return REMOTE_SETTINGS;
-    return preferNewest(preferNewest(FILE_SETTINGS, REMOTE_SETTINGS), getLocalJson(SETTINGS_KEY));
+    return preferNewest(REMOTE_SETTINGS, getLocalJson(SETTINGS_KEY));
   }
 
   function normalizeLibrary(data) {
@@ -2063,15 +2096,14 @@ input[type="range"] {
 
   function getLibrary() {
     const local = normalizeLibrary(getLocalJson(LIBRARY_KEY));
-    const file = normalizeLibrary(FILE_LIBRARY);
     const remote = normalizeLibrary(REMOTE_LIBRARY);
-    if (authToken && remote.books.length) return remote;
+    if (authToken) return remote;
 
     function newest(lib) {
       return Math.max(...(lib.books || []).map(b => Number(b.savedAt || 0)), 0);
     }
 
-    const sources = [local, remote, file].filter(lib => lib.books.length);
+    const sources = [local, remote].filter(lib => lib.books.length);
     if (!sources.length) return { books: [], currentBookId: null };
 
     sources.sort((a, b) => newest(b) - newest(a));
@@ -2527,7 +2559,6 @@ input[type="range"] {
       localStorage.removeItem(LIBRARY_KEY);
     } catch (e) {}
 
-    localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
     nativeOpen("flashread://clear?ts=" + encodeURIComponent(String(Date.now())));
 
     queueNative(async () => {
@@ -2537,6 +2568,35 @@ input[type="range"] {
         console.log("Clear remote error", e);
       }
     });
+  }
+
+  function logoutAccount() {
+    authToken = "";
+    currentUser = null;
+    REMOTE_SESSION = null;
+    REMOTE_SETTINGS = null;
+    REMOTE_LIBRARY = { books: [], currentBookId: null };
+
+    localStorage.removeItem(MIGRATION_KEY);
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(SETTINGS_KEY);
+    localStorage.removeItem(LIBRARY_KEY);
+
+    library = { books: [], currentBookId: null };
+    currentBookId = null;
+    words = [];
+    index = 0;
+    lastRenderedIndex = 0;
+    $("bookTitle").value = "";
+    renderLibrary();
+    updateMainUi();
+
+    $("authPassword").value = "";
+    $("authHint").textContent = "Inserisci username e password per continuare.";
+    $("authModal").classList.remove("hidden");
+
+    setStatus("Logout completato.");
+    haptic("medium");
   }
 
   function getBookProgress(book) {
@@ -3540,9 +3600,10 @@ input[type="range"] {
   }
 
   function migrateOldSessionIfNeeded() {
+    if (authToken) return;
     if (library.books.length) return;
 
-    const old = getSaved();
+    const old = getLocalJson(KEY);
 
     if (old && old.text) {
       const migratedWords = tokenizeText(old.text);
@@ -3800,6 +3861,11 @@ input[type="range"] {
     haptic("light");
   });
 
+  $("logoutBtn").addEventListener("click", () => {
+    logoutAccount();
+    closeSettings();
+  });
+
   $("resetBtn").addEventListener("click", () => {
     const ok = confirm("Vuoi davvero azzerare sessione, libreria e impostazioni?");
     if (!ok) return;
@@ -4008,11 +4074,44 @@ input[type="range"] {
     if (currentBookId) saveStateNativeNow();
   }, 5000);
 
-  async function initializeApp() {
-    await loadRemoteBootstrap();
-    loadInitialFields();
+  function wireAuthActions() {
+    $("authLoginBtn").addEventListener("click", async () => {
+      const ok = await authenticate("login");
+      if (!ok) return;
+      await loadRemoteBootstrap();
+      loadInitialFields();
+    });
+
+    $("authRegisterBtn").addEventListener("click", async () => {
+      const ok = await authenticate("register");
+      if (!ok) return;
+      await loadRemoteBootstrap();
+      loadInitialFields();
+    });
   }
 
+  function initializeApp() {
+    authToken = "";
+    currentUser = null;
+    REMOTE_SESSION = null;
+    REMOTE_SETTINGS = null;
+    REMOTE_LIBRARY = { books: [], currentBookId: null };
+
+    library = { books: [], currentBookId: null };
+    currentBookId = null;
+
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(SETTINGS_KEY);
+    localStorage.removeItem(LIBRARY_KEY);
+
+    renderFontOptions();
+    applySettingsToControls();
+    renderLibrary();
+    updateMainUi();
+    $("authModal").classList.remove("hidden");
+  }
+
+  wireAuthActions();
   initializeApp();
 })();
 </script>
