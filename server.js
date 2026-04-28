@@ -63,8 +63,50 @@ async function ensureSeedUser() {
   });
 }
 
+function normalizeUsername(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function issueAuthPayload(user) {
+  const token = jwt.sign({ sub: String(user._id), username: user.username }, jwtSecret, { expiresIn: '30d' });
+  return { token, user: userResponse(user) };
+}
+
+app.post('/api/auth/register', async (req, res) => {
+  const username = normalizeUsername(req.body.username);
+  const password = String(req.body.password || '');
+
+  if (!/^[a-z0-9_.-]{3,32}$/.test(username)) {
+    res.status(400).json({ error: 'Username non valido.' });
+    return;
+  }
+
+  if (password.length < 8) {
+    res.status(400).json({ error: 'Password troppo corta (min 8 caratteri).' });
+    return;
+  }
+
+  const users = db.collection('users');
+  const existing = await users.findOne({ username });
+
+  if (existing) {
+    res.status(409).json({ error: 'Username già registrato.' });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const result = await users.insertOne({
+    username,
+    passwordHash,
+    createdAt: new Date()
+  });
+
+  const user = await users.findOne({ _id: result.insertedId });
+  res.status(201).json(issueAuthPayload(user));
+});
+
 app.post('/api/auth/login', async (req, res) => {
-  const username = String(req.body.username || '').trim().toLowerCase();
+  const username = normalizeUsername(req.body.username);
   const password = String(req.body.password || '');
 
   const users = db.collection('users');
@@ -81,8 +123,7 @@ app.post('/api/auth/login', async (req, res) => {
     return;
   }
 
-  const token = jwt.sign({ sub: String(user._id), username: user.username }, jwtSecret, { expiresIn: '30d' });
-  res.json({ token, user: userResponse(user) });
+  res.json(issueAuthPayload(user));
 });
 
 app.get('/api/bootstrap', authMiddleware, async (req, res) => {
