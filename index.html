@@ -648,6 +648,21 @@ button {
   margin:4px 0 10px;
 }
 
+.authMessage {
+  min-height:20px;
+  font-size:12px;
+  margin:2px 0 10px;
+  color:var(--muted2);
+}
+
+.authMessage.error {
+  color:var(--danger);
+}
+
+.authMessage.success {
+  color:var(--accent);
+}
+
 .group {
   border:1px solid var(--line);
   border-radius:27px;
@@ -1637,6 +1652,7 @@ input[type="range"] {
         <button type="button" class="authTab" id="authTabRegister">Registrazione</button>
       </div>
       <div class="authHelp" id="authHelpText">Entra con il tuo account.</div>
+      <div class="authMessage" id="authMessage"></div>
       <div class="formStack">
         <input id="authUsername" type="text" autocomplete="username" autocapitalize="off" placeholder="Username (3-32, a-z 0-9 _ . -)">
         <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password (min 8 caratteri)">
@@ -1730,6 +1746,7 @@ input[type="range"] {
   let REMOTE_LIBRARY = { books: [], currentBookId: null };
   let authMode = "login";
   let authResolver = null;
+  let authWorking = false;
 
   let library = normalizeLibrary({ books: [], currentBookId: null });
   let currentBookId = library.currentBookId || null;
@@ -1832,16 +1849,28 @@ input[type="range"] {
     $("authTabRegister").classList.toggle("active", authMode === "register");
     $("authPasswordConfirm").classList.toggle("hidden", authMode !== "register");
     $("authSubmitBtn").textContent = authMode === "register" ? "Crea account" : "Accedi";
+    setAuthMessage("", "");
     $("authHelpText").textContent =
       authMode === "register"
         ? "Crea un account nuovo. Partirai con libreria e impostazioni vuote."
         : "Entra con il tuo account.";
   }
 
+  
+  function setAuthMessage(message, tone) {
+    const node = $("authMessage");
+    node.textContent = String(message || "");
+    node.classList.remove("error", "success");
+    if (tone === "error") node.classList.add("error");
+    if (tone === "success") node.classList.add("success");
+  }
   function openAuthModal() {
     setAuthMode(authMode);
+    authWorking = false;
     $("authPassword").value = "";
     $("authPasswordConfirm").value = "";
+    $("authSubmitBtn").disabled = false;
+    setAuthMessage("", "");
     $("authModal").classList.remove("hidden");
     $("authUsername").focus();
 
@@ -1876,28 +1905,14 @@ input[type="range"] {
     localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
 
     while (!authToken) {
-      const authData = await openAuthModal();
-      const mode = authData.mode;
-      const username = authData.username;
-      const password = authData.password;
+      const payload = await openAuthModal();
+      authToken = payload.token || "";
+      currentUser = payload.user || null;
+      if (!authToken) continue;
 
-      if (!username || !password) {
-        setStatus("Username e password sono obbligatori.");
-        continue;
-      }
-
-      try {
-        const payload = await authenticateRemote(mode, username, password);
-        authToken = payload.token || "";
-        currentUser = payload.user || null;
-        if (!authToken) throw new Error("Token non ricevuto");
-        localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
-        resetAppStateForUserSwitch();
-        setStatus("Accesso effettuato come " + (currentUser ? currentUser.username : username));
-      } catch (e) {
-        const label = mode === "register" ? "Registrazione" : "Login";
-        setStatus(label + " fallito: " + (e && e.message ? e.message : "errore"));
-      }
+      localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
+      resetAppStateForUserSwitch();
+      setStatus("Accesso effettuato come " + (currentUser ? currentUser.username : "utente"));
     }
   }
 
@@ -2594,6 +2609,7 @@ input[type="range"] {
   function debouncedSave() {
     saveLocalOnly();
     saveStateNativeSoon();
+    saveSettingsNativeNow();
   }
 
   function forceSaveNow() {
@@ -3679,8 +3695,23 @@ input[type="range"] {
 
     migrateOldSessionIfNeeded();
 
-    const book = getCurrentBook();
     const saved = getSaved();
+    if (saved && saved.currentBookId) {
+      const savedBook = library.books.find(b => b.id === saved.currentBookId);
+      if (savedBook) {
+        savedBook.index = Number(saved.index || savedBook.index || 0);
+        savedBook.wpm = Number(saved.wpm || savedBook.wpm || 330);
+        savedBook.ctxCount = Number(saved.ctxCount || savedBook.ctxCount || 9);
+        if (saved.settings) {
+          savedBook.settings = Object.assign({}, savedBook.settings || {}, saved.settings);
+        }
+        savedBook.savedAt = Math.max(Number(savedBook.savedAt || 0), Number(saved.savedAt || 0), Date.now());
+        currentBookId = savedBook.id;
+        library.currentBookId = savedBook.id;
+      }
+    }
+
+    const book = getCurrentBook();
 
     const sessionSettings = book && book.settings ? book.settings : null;
     const globalSettings = getSavedSettings();
@@ -3949,25 +3980,50 @@ input[type="range"] {
   $("confirmDeleteBtn").addEventListener("click", deleteBookNow);
   $("authTabLogin").addEventListener("click", () => setAuthMode("login"));
   $("authTabRegister").addEventListener("click", () => setAuthMode("register"));
-  $("authSubmitBtn").addEventListener("click", () => {
-    if (!authResolver) return;
+  ["authUsername", "authPassword", "authPasswordConfirm"].forEach(id => {
+    $(id).addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        $("authSubmitBtn").click();
+      }
+    });
+  });
+  $("authSubmitBtn").addEventListener("click", async () => {
+    if (!authResolver || authWorking) return;
+
     const username = String($("authUsername").value || "").trim().toLowerCase();
     const password = String($("authPassword").value || "");
     const passwordConfirm = String($("authPasswordConfirm").value || "");
 
     if (!username || !password) {
-      setStatus("Username e password sono obbligatori.");
+      setAuthMessage("Username e password sono obbligatori.", "error");
       return;
     }
 
     if (authMode === "register" && password !== passwordConfirm) {
-      setStatus("Le password non coincidono.");
+      setAuthMessage("Le password non coincidono.", "error");
       return;
     }
 
-    const resolve = authResolver;
-    closeAuthModal();
-    resolve({ mode: authMode, username, password });
+    authWorking = true;
+    $("authSubmitBtn").disabled = true;
+    setAuthMessage(authMode === "register" ? "Creazione account..." : "Accesso in corso...", "");
+
+    try {
+      const payload = await authenticateRemote(authMode, username, password);
+      const resolve = authResolver;
+      if (!resolve) return;
+
+      setAuthMessage(authMode === "register" ? "Account creato con successo." : "Login eseguito.", "success");
+      authWorking = false;
+      $("authSubmitBtn").disabled = false;
+      closeAuthModal();
+      resolve(payload);
+    } catch (e) {
+      authWorking = false;
+      $("authSubmitBtn").disabled = false;
+      setAuthMessage((e && e.message ? e.message : "Errore durante autenticazione."), "error");
+    }
   });
 
   $("backBtn").addEventListener("touchstart", e => {
