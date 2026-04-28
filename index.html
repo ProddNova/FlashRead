@@ -1,6 +1,6 @@
 <html lang="en" style="--vw: 390px; --vh: 719px;"><head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FlashRead</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
@@ -1271,20 +1271,19 @@ input[type="range"] {
   display:flex;
   align-items:center;
   justify-content:center;
-  background:rgba(8,8,11,.58);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
+  background:#0d0b12;
+  background-image:linear-gradient(160deg,#0d0b12 0%,#161220 48%,#1d1525 100%);
 }
 
 .appLoaderCard {
   min-width:220px;
   max-width:80vw;
   border-radius:24px;
-  border:1px solid var(--line);
-  background:linear-gradient(180deg,var(--card),var(--card2));
+  border:1px solid rgba(250,204,21,.26);
+  background:linear-gradient(180deg,#181423,#100d1a);
   padding:16px 18px;
   text-align:center;
-  box-shadow:0 20px 60px var(--shadow);
+  box-shadow:0 20px 60px rgba(0,0,0,.45);
 }
 
 .loaderSpinner {
@@ -1844,13 +1843,28 @@ input[type="range"] {
 
   function setViewportVars() {
     const vv = window.visualViewport;
-    const width = Math.max(window.innerWidth || 0, vv ? Math.round(vv.width) : 0);
-    const height = Math.max(window.innerHeight || 0, vv ? Math.round(vv.height) : 0);
-    document.documentElement.style.setProperty("--vw", Math.round(width) + "px");
-    document.documentElement.style.setProperty("--vh", Math.round(height) + "px");
+    const width = vv ? Math.round(vv.width) : Math.round(window.innerWidth || 0);
+    const height = vv ? Math.round(vv.height) : Math.round(window.innerHeight || 0);
+    document.documentElement.style.setProperty("--vw", Math.max(1, width) + "px");
+    document.documentElement.style.setProperty("--vh", Math.max(1, height) + "px");
+  }
+
+  async function unlockScreenOrientation() {
+    try {
+      if (window.screen && window.screen.orientation && typeof window.screen.orientation.unlock === "function") {
+        window.screen.orientation.unlock();
+      }
+    } catch (e) {}
+
+    try {
+      if (window.screen && window.screen.orientation && typeof window.screen.orientation.lock === "function") {
+        await window.screen.orientation.lock("any");
+      }
+    } catch (e) {}
   }
 
   setViewportVars();
+  unlockScreenOrientation();
 
   let loaderDepth = 0;
 
@@ -4370,6 +4384,7 @@ input[type="range"] {
   }
 
   const orientationWatcher = () => {
+    unlockScreenOrientation();
     setViewportVars();
     setTimeout(() => {
       setViewportVars();
@@ -4398,7 +4413,12 @@ input[type="range"] {
   window.addEventListener("beforeunload", forceSaveNow);
 
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) forceSaveNow();
+    if (document.hidden) {
+      forceSaveNow();
+      return;
+    }
+    unlockScreenOrientation();
+    handleViewportChange();
   });
 
   setInterval(() => {
