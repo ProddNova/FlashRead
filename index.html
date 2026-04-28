@@ -3389,6 +3389,35 @@ input[type="range"] {
     return result;
   }
 
+  function alignFocusLetterAnchor() {
+    const wordEl = $("word");
+
+    if (!wordEl) return;
+
+    if (!settings.focusLetter) {
+      wordEl.style.transform = "none";
+      return;
+    }
+
+    const focusEl = wordEl.querySelector(".focusLetter");
+    const box = $("wordBox");
+
+    if (!focusEl || !box) {
+      wordEl.style.transform = "none";
+      return;
+    }
+
+    const focusRect = focusEl.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    if (!focusRect.width || !boxRect.width) return;
+
+    const focusCenter = focusRect.left + focusRect.width / 2;
+    const targetCenter = boxRect.left + boxRect.width / 2;
+    const shift = targetCenter - focusCenter;
+
+    wordEl.style.transform = `translateX(${shift.toFixed(2)}px)`;
+  }
+
   function fitWord() {
     const el = $("word");
     const box = $("wordBox");
@@ -3409,6 +3438,8 @@ input[type="range"] {
       size -= 2;
       el.style.fontSize = size + "px";
     }
+
+    alignFocusLetterAnchor();
   }
 
   function renderGhosts() {
@@ -3624,6 +3655,7 @@ input[type="range"] {
     applyReaderSettings();
 
     $("word").innerHTML = renderFocusWord(words[index]);
+    alignFocusLetterAnchor();
     $("countLabel").textContent = (index + 1) + " / " + words.length;
 
     const percent = words.length ? ((index + 1) / words.length) * 100 : 0;
@@ -4323,8 +4355,6 @@ input[type="range"] {
   }
 
   $("backBtn").addEventListener("pointerup", handleBackBtn);
-  $("backBtn").addEventListener("touchend", handleBackBtn, { passive:false });
-  $("backBtn").addEventListener("click", handleBackBtn);
 
   $("autoToggleBtn").addEventListener("touchstart", e => {
     e.preventDefault();
