@@ -1588,6 +1588,7 @@ input[type="range"] {
           <div class="formStack">
             <button type="button" class="btn secondary" id="deselectBtn">Deseleziona documento</button>
             <button type="button" class="btn secondary" id="closeSettingsBottomBtn">Chiudi e salva</button>
+            <button type="button" class="btn secondary" id="logoutBtn">Logout account</button>
             <button type="button" class="btn danger" id="resetBtn">Azzera tutto</button>
           </div>
         </div>
@@ -1677,7 +1678,7 @@ input[type="range"] {
   let REMOTE_SESSION = null;
   let REMOTE_SETTINGS = null;
   let REMOTE_LIBRARY = { books: [], currentBookId: null };
-  const MIGRATION_KEY = "FLASHREAD_MIGRATED_JACK";
+  const MIGRATION_KEY = "FLASHREAD_MIGRATED_REMOTE";
 
   let library = normalizeLibrary(FILE_LIBRARY);
   let currentBookId = library.currentBookId || null;
@@ -1765,33 +1766,18 @@ input[type="range"] {
   }
 
   async function loginAuto() {
-    if (authToken) return true;
+    if (!authToken) return false;
 
-    let authRes = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "jack", password: "Giacomo090665" })
-    });
-
-    if (!authRes.ok) {
-      authRes = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "jack", password: "Giacomo090665" })
-      });
+    try {
+      const payload = await apiFetch("/api/bootstrap");
+      currentUser = payload.user || null;
+      return true;
+    } catch (e) {
+      authToken = "";
+      currentUser = null;
+      localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
+      return false;
     }
-
-    if (!authRes.ok) return false;
-
-    const payload = await authRes.json();
-    authToken = payload.token || "";
-    currentUser = payload.user || null;
-
-    if (authToken) {
-      localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
-    }
-
-    return !!authToken;
   }
 
   async function migrateLocalDataToJack() {
@@ -1822,27 +1808,33 @@ input[type="range"] {
         });
       }
       localStorage.setItem(MIGRATION_KEY, "1");
-      setStatus("Dati migrati su account jack.");
+      setStatus("Dati locali migrati su account remoto.");
     } catch (e) {
-      console.log("Migration to jack error", e);
+      console.log("Migration to remote error", e);
     }
   }
 
   async function loadRemoteBootstrap() {
     const ok = await loginAuto();
-    if (!ok) return;
+
+    if (!ok) {
+      setStatus("Nessun login remoto attivo: uso salvataggio locale.");
+      return;
+    }
 
     try {
       let payload = await apiFetch("/api/bootstrap");
       REMOTE_SESSION = payload.session || null;
       REMOTE_SETTINGS = payload.settings || null;
       REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
+      currentUser = payload.user || currentUser;
       await migrateLocalDataToJack();
       payload = await apiFetch("/api/bootstrap");
       REMOTE_SESSION = payload.session || null;
       REMOTE_SETTINGS = payload.settings || null;
       REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
-      setStatus("Login automatico attivo: " + (currentUser ? currentUser.username : "jack"));
+      currentUser = payload.user || currentUser;
+      setStatus("Sessione remota attiva: " + (currentUser ? currentUser.username : "utente"));
     } catch (e) {
       console.log("Remote bootstrap error", e);
       setStatus("Backend non raggiungibile: uso salvataggio locale.");
@@ -2537,6 +2529,20 @@ input[type="range"] {
         console.log("Clear remote error", e);
       }
     });
+  }
+
+  function logoutAccount() {
+    authToken = "";
+    currentUser = null;
+    REMOTE_SESSION = null;
+    REMOTE_SETTINGS = null;
+    REMOTE_LIBRARY = { books: [], currentBookId: null };
+
+    localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
+    localStorage.removeItem(MIGRATION_KEY);
+
+    setStatus("Logout completato. Salvataggio solo locale attivo.");
+    haptic("medium");
   }
 
   function getBookProgress(book) {
@@ -3798,6 +3804,11 @@ input[type="range"] {
     forceSaveNow();
     render();
     haptic("light");
+  });
+
+  $("logoutBtn").addEventListener("click", () => {
+    logoutAccount();
+    closeSettings();
   });
 
   $("resetBtn").addEventListener("click", () => {
