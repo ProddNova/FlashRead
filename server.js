@@ -1,7 +1,7 @@
 const path = require('path');
 const express = require('express');
 const dotenv = require('dotenv');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -130,6 +130,12 @@ app.get('/api/bootstrap', authMiddleware, async (req, res) => {
   const userId = req.userId;
   const profile = await db.collection('profiles').findOne({ userId });
 
+  const users = db.collection('users');
+  let user = null;
+  if (ObjectId.isValid(userId)) {
+    user = await users.findOne({ _id: new ObjectId(userId) });
+  }
+
   const books = await db
     .collection('books')
     .find({ userId })
@@ -137,6 +143,7 @@ app.get('/api/bootstrap', authMiddleware, async (req, res) => {
     .toArray();
 
   res.json({
+    user: user ? userResponse(user) : null,
     session: profile?.session || null,
     settings: profile?.settings || null,
     library: {

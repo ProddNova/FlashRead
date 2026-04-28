@@ -1672,8 +1672,9 @@ input[type="range"] {
   let stateSaveTimer = null;
   let lastNativeHapticAt = 0;
   let themeMenuOpen = false;
+  const nativeBridgeAvailable = !!(window.webkit && window.webkit.messageHandlers);
 
-  let authToken = localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "";
+  let authToken = "";
   let currentUser = null;
   let REMOTE_SESSION = null;
   let REMOTE_SETTINGS = null;
@@ -1724,6 +1725,8 @@ input[type="range"] {
   }
 
   function nativeOpen(url) {
+    if (!nativeBridgeAvailable) return;
+
     try {
       const iframe = document.createElement("iframe");
       iframe.style.width = "1px";
@@ -1763,6 +1766,44 @@ input[type="range"] {
 
     if (res.status === 204) return null;
     return res.json();
+  }
+
+  async function authenticateRemote(mode, username, password) {
+    const endpoint = mode === "register" ? "/api/auth/register" : "/api/auth/login";
+    return apiFetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify({ username, password })
+    });
+  }
+
+  async function requireManualAuth() {
+    authToken = "";
+    currentUser = null;
+    localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
+
+    while (!authToken) {
+      const wantsRegister = confirm("Vuoi creare un account nuovo? Premi OK per registrarti, Annulla per fare login.");
+      const mode = wantsRegister ? "register" : "login";
+      const username = String(prompt("Username (3-32 caratteri: lettere, numeri, _, ., -)") || "").trim().toLowerCase();
+      const password = String(prompt("Password (minimo 8 caratteri)") || "");
+
+      if (!username || !password) {
+        setStatus("Username e password sono obbligatori.");
+        continue;
+      }
+
+      try {
+        const payload = await authenticateRemote(mode, username, password);
+        authToken = payload.token || "";
+        currentUser = payload.user || null;
+        if (!authToken) throw new Error("Token non ricevuto");
+        localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
+        setStatus("Accesso effettuato come " + (currentUser ? currentUser.username : username));
+      } catch (e) {
+        const label = mode === "register" ? "Registrazione" : "Login";
+        setStatus(label + " fallito: " + (e && e.message ? e.message : "errore"));
+      }
+    }
   }
 
   async function loginAuto() {
@@ -2038,12 +2079,12 @@ input[type="range"] {
 
   function getSaved() {
     if (authToken && REMOTE_SESSION) return REMOTE_SESSION;
-    return preferNewest(preferNewest(FILE_SESSION, REMOTE_SESSION), getLocalJson(KEY));
+    return preferNewest(REMOTE_SESSION, getLocalJson(KEY));
   }
 
   function getSavedSettings() {
     if (authToken && REMOTE_SETTINGS) return REMOTE_SETTINGS;
-    return preferNewest(preferNewest(FILE_SETTINGS, REMOTE_SETTINGS), getLocalJson(SETTINGS_KEY));
+    return preferNewest(REMOTE_SETTINGS, getLocalJson(SETTINGS_KEY));
   }
 
   function normalizeLibrary(data) {
@@ -2055,7 +2096,6 @@ input[type="range"] {
 
   function getLibrary() {
     const local = normalizeLibrary(getLocalJson(LIBRARY_KEY));
-    const file = normalizeLibrary(FILE_LIBRARY);
     const remote = normalizeLibrary(REMOTE_LIBRARY);
     if (authToken && remote.books.length) return remote;
 
@@ -2063,7 +2103,7 @@ input[type="range"] {
       return Math.max(...(lib.books || []).map(b => Number(b.savedAt || 0)), 0);
     }
 
-    const sources = [local, remote, file].filter(lib => lib.books.length);
+    const sources = [local, remote].filter(lib => lib.books.length);
     if (!sources.length) return { books: [], currentBookId: null };
 
     sources.sort((a, b) => newest(b) - newest(a));
@@ -2531,7 +2571,7 @@ input[type="range"] {
     });
   }
 
-  function logoutAccount() {
+  async function logoutAccount() {
     authToken = "";
     currentUser = null;
     REMOTE_SESSION = null;
@@ -2541,7 +2581,11 @@ input[type="range"] {
     localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
     localStorage.removeItem(MIGRATION_KEY);
 
-    setStatus("Logout completato. Salvataggio solo locale attivo.");
+    await requireManualAuth();
+    await loadRemoteBootstrap();
+    loadInitialFields();
+
+    setStatus("Logout completato. Nuovo account attivo.");
     haptic("medium");
   }
 
@@ -3806,8 +3850,8 @@ input[type="range"] {
     haptic("light");
   });
 
-  $("logoutBtn").addEventListener("click", () => {
-    logoutAccount();
+  $("logoutBtn").addEventListener("click", async () => {
+    await logoutAccount();
     closeSettings();
   });
 
@@ -4020,6 +4064,7 @@ input[type="range"] {
   }, 5000);
 
   async function initializeApp() {
+    await requireManualAuth();
     await loadRemoteBootstrap();
     loadInitialFields();
   }
