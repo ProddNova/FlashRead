@@ -620,6 +620,34 @@ button {
   gap:13px;
 }
 
+.authTabs {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-bottom:12px;
+}
+
+.authTab {
+  min-height:44px;
+  border-radius:14px;
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.06);
+  color:var(--muted);
+  font-weight:900;
+}
+
+.authTab.active {
+  color:var(--ink);
+  background:var(--soft);
+  border-color:rgba(250,204,21,.35);
+}
+
+.authHelp {
+  color:var(--muted);
+  font-size:12px;
+  margin:4px 0 10px;
+}
+
 .group {
   border:1px solid var(--line);
   border-radius:27px;
@@ -1598,6 +1626,27 @@ input[type="range"] {
   </div>
 </section>
 
+<section class="modalShade hidden" id="authModal">
+  <div class="sheet">
+    <div class="sheetTop">
+      <div class="sheetTitle">Account</div>
+    </div>
+    <div class="sheetBody">
+      <div class="authTabs">
+        <button type="button" class="authTab active" id="authTabLogin">Login</button>
+        <button type="button" class="authTab" id="authTabRegister">Registrazione</button>
+      </div>
+      <div class="authHelp" id="authHelpText">Entra con il tuo account.</div>
+      <div class="formStack">
+        <input id="authUsername" type="text" autocomplete="username" autocapitalize="off" placeholder="Username (3-32, a-z 0-9 _ . -)">
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password (min 8 caratteri)">
+        <input id="authPasswordConfirm" class="hidden" type="password" autocomplete="new-password" placeholder="Conferma password">
+        <button type="button" class="btn" id="authSubmitBtn">Accedi</button>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="modalShade hidden" id="confirmModal">
   <div class="sheet">
     <div class="sheetTop">
@@ -1679,9 +1728,10 @@ input[type="range"] {
   let REMOTE_SESSION = null;
   let REMOTE_SETTINGS = null;
   let REMOTE_LIBRARY = { books: [], currentBookId: null };
-  const MIGRATION_KEY = "FLASHREAD_MIGRATED_REMOTE";
+  let authMode = "login";
+  let authResolver = null;
 
-  let library = normalizeLibrary(FILE_LIBRARY);
+  let library = normalizeLibrary({ books: [], currentBookId: null });
   let currentBookId = library.currentBookId || null;
   let settings = sanitizeSettings(Object.assign({}, DEFAULT_SETTINGS));
 
@@ -1776,16 +1826,60 @@ input[type="range"] {
     });
   }
 
+  function setAuthMode(mode) {
+    authMode = mode === "register" ? "register" : "login";
+    $("authTabLogin").classList.toggle("active", authMode === "login");
+    $("authTabRegister").classList.toggle("active", authMode === "register");
+    $("authPasswordConfirm").classList.toggle("hidden", authMode !== "register");
+    $("authSubmitBtn").textContent = authMode === "register" ? "Crea account" : "Accedi";
+    $("authHelpText").textContent =
+      authMode === "register"
+        ? "Crea un account nuovo. Partirai con libreria e impostazioni vuote."
+        : "Entra con il tuo account.";
+  }
+
+  function openAuthModal() {
+    setAuthMode(authMode);
+    $("authPassword").value = "";
+    $("authPasswordConfirm").value = "";
+    $("authModal").classList.remove("hidden");
+    $("authUsername").focus();
+
+    return new Promise((resolve) => {
+      authResolver = resolve;
+    });
+  }
+
+  function closeAuthModal() {
+    $("authModal").classList.add("hidden");
+    authResolver = null;
+  }
+
+  function resetAppStateForUserSwitch() {
+    REMOTE_SESSION = null;
+    REMOTE_SETTINGS = null;
+    REMOTE_LIBRARY = { books: [], currentBookId: null };
+    library = { books: [], currentBookId: null };
+    currentBookId = null;
+    words = [];
+    index = 0;
+    lastRenderedIndex = 0;
+    $("bookTitle").value = "";
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(SETTINGS_KEY);
+    localStorage.removeItem(LIBRARY_KEY);
+  }
+
   async function requireManualAuth() {
     authToken = "";
     currentUser = null;
     localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
 
     while (!authToken) {
-      const wantsRegister = confirm("Vuoi creare un account nuovo? Premi OK per registrarti, Annulla per fare login.");
-      const mode = wantsRegister ? "register" : "login";
-      const username = String(prompt("Username (3-32 caratteri: lettere, numeri, _, ., -)") || "").trim().toLowerCase();
-      const password = String(prompt("Password (minimo 8 caratteri)") || "");
+      const authData = await openAuthModal();
+      const mode = authData.mode;
+      const username = authData.username;
+      const password = authData.password;
 
       if (!username || !password) {
         setStatus("Username e password sono obbligatori.");
@@ -1798,6 +1892,7 @@ input[type="range"] {
         currentUser = payload.user || null;
         if (!authToken) throw new Error("Token non ricevuto");
         localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
+        resetAppStateForUserSwitch();
         setStatus("Accesso effettuato come " + (currentUser ? currentUser.username : username));
       } catch (e) {
         const label = mode === "register" ? "Registrazione" : "Login";
@@ -1821,40 +1916,6 @@ input[type="range"] {
     }
   }
 
-  async function migrateLocalDataToJack() {
-    if (!authToken) return;
-    if (localStorage.getItem(MIGRATION_KEY) === "1") return;
-
-    const localSession = getLocalJson(KEY) || FILE_SESSION || null;
-    const localSettings = getLocalJson(SETTINGS_KEY) || FILE_SETTINGS || null;
-    const localLibrary = normalizeLibrary(getLocalJson(LIBRARY_KEY) || FILE_LIBRARY);
-
-    const remoteHasData =
-      !!REMOTE_SESSION ||
-      !!REMOTE_SETTINGS ||
-      (REMOTE_LIBRARY && Array.isArray(REMOTE_LIBRARY.books) && REMOTE_LIBRARY.books.length > 0);
-
-    if (remoteHasData) {
-      localStorage.setItem(MIGRATION_KEY, "1");
-      return;
-    }
-
-    try {
-      if (localSettings) await apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(localSettings) });
-      if (localSession) await apiFetch("/api/state", { method: "PUT", body: JSON.stringify(localSession) });
-      for (const book of localLibrary.books || []) {
-        await apiFetch("/api/books/" + encodeURIComponent(String(book.id)), {
-          method: "PUT",
-          body: JSON.stringify(book)
-        });
-      }
-      localStorage.setItem(MIGRATION_KEY, "1");
-      setStatus("Dati locali migrati su account remoto.");
-    } catch (e) {
-      console.log("Migration to remote error", e);
-    }
-  }
-
   async function loadRemoteBootstrap() {
     const ok = await loginAuto();
 
@@ -1865,12 +1926,6 @@ input[type="range"] {
 
     try {
       let payload = await apiFetch("/api/bootstrap");
-      REMOTE_SESSION = payload.session || null;
-      REMOTE_SETTINGS = payload.settings || null;
-      REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
-      currentUser = payload.user || currentUser;
-      await migrateLocalDataToJack();
-      payload = await apiFetch("/api/bootstrap");
       REMOTE_SESSION = payload.session || null;
       REMOTE_SETTINGS = payload.settings || null;
       REMOTE_LIBRARY = normalizeLibrary(payload.library || { books: [], currentBookId: null });
@@ -2579,7 +2634,7 @@ input[type="range"] {
     REMOTE_LIBRARY = { books: [], currentBookId: null };
 
     localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
-    localStorage.removeItem(MIGRATION_KEY);
+    resetAppStateForUserSwitch();
 
     await requireManualAuth();
     await loadRemoteBootstrap();
@@ -3892,6 +3947,28 @@ input[type="range"] {
   $("cancelDeleteBtn2").addEventListener("click", closeDeleteModal);
   $("cancelDeleteBtn3").addEventListener("click", closeDeleteModal);
   $("confirmDeleteBtn").addEventListener("click", deleteBookNow);
+  $("authTabLogin").addEventListener("click", () => setAuthMode("login"));
+  $("authTabRegister").addEventListener("click", () => setAuthMode("register"));
+  $("authSubmitBtn").addEventListener("click", () => {
+    if (!authResolver) return;
+    const username = String($("authUsername").value || "").trim().toLowerCase();
+    const password = String($("authPassword").value || "");
+    const passwordConfirm = String($("authPasswordConfirm").value || "");
+
+    if (!username || !password) {
+      setStatus("Username e password sono obbligatori.");
+      return;
+    }
+
+    if (authMode === "register" && password !== passwordConfirm) {
+      setStatus("Le password non coincidono.");
+      return;
+    }
+
+    const resolve = authResolver;
+    closeAuthModal();
+    resolve({ mode: authMode, username, password });
+  });
 
   $("backBtn").addEventListener("touchstart", e => {
     e.preventDefault();
@@ -4064,8 +4141,15 @@ input[type="range"] {
   }, 5000);
 
   async function initializeApp() {
-    await requireManualAuth();
+    authToken = String(localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "");
+    if (!authToken) {
+      await requireManualAuth();
+    }
     await loadRemoteBootstrap();
+    if (!currentUser) {
+      await requireManualAuth();
+      await loadRemoteBootstrap();
+    }
     loadInitialFields();
   }
 
