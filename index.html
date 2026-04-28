@@ -64,7 +64,9 @@ button {
   left:0;
   top:0;
   width:var(--vw);
+  width:100vw;
   height:var(--vh);
+  height:100dvh;
   overflow:hidden;
   background:
     radial-gradient(440px 320px at 85% -8%, var(--soft), transparent),
@@ -950,7 +952,9 @@ input[type="range"] {
   position:fixed;
   inset:0;
   width:var(--vw);
+  width:100vw;
   height:var(--vh);
+  height:100dvh;
   overflow:hidden;
   touch-action:none;
   user-select:none;
@@ -992,6 +996,10 @@ input[type="range"] {
   display:flex;
   align-items:center;
   justify-content:center;
+  touch-action:manipulation;
+  pointer-events:auto;
+  position:relative;
+  z-index:40;
 }
 
 .readerCenterTop {
@@ -1256,6 +1264,50 @@ input[type="range"] {
   font-weight:1000;
 }
 
+.appLoader {
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(8,8,11,.58);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+}
+
+.appLoaderCard {
+  min-width:220px;
+  max-width:80vw;
+  border-radius:24px;
+  border:1px solid var(--line);
+  background:linear-gradient(180deg,var(--card),var(--card2));
+  padding:16px 18px;
+  text-align:center;
+  box-shadow:0 20px 60px var(--shadow);
+}
+
+.loaderSpinner {
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  margin:0 auto 10px;
+  border:3px solid rgba(255,255,255,.2);
+  border-top-color:var(--accent);
+  animation:spin .9s linear infinite;
+}
+
+.loaderText {
+  color:var(--ink);
+  font-size:13px;
+  font-weight:800;
+  letter-spacing:.01em;
+}
+
+@keyframes spin {
+  to { transform:rotate(360deg); }
+}
+
 @media (orientation:landscape) {
   .shell {
     max-width:760px;
@@ -1395,6 +1447,13 @@ input[type="range"] {
 
   <div class="wpmUnder" id="wpmLabel">330 WPM</div>
 </section>
+
+<div class="appLoader hidden" id="appLoader">
+  <div class="appLoaderCard">
+    <div class="loaderSpinner"></div>
+    <div class="loaderText" id="appLoaderText">Caricamento…</div>
+  </div>
+</div>
 
 <section class="modalShade hidden" id="settingsModal">
   <div class="sheet">
@@ -1785,13 +1844,39 @@ input[type="range"] {
 
   function setViewportVars() {
     const vv = window.visualViewport;
-    const width = vv ? vv.width : window.innerWidth;
-    const height = vv ? vv.height : window.innerHeight;
+    const width = Math.max(window.innerWidth || 0, vv ? Math.round(vv.width) : 0);
+    const height = Math.max(window.innerHeight || 0, vv ? Math.round(vv.height) : 0);
     document.documentElement.style.setProperty("--vw", Math.round(width) + "px");
     document.documentElement.style.setProperty("--vh", Math.round(height) + "px");
   }
 
   setViewportVars();
+
+  let loaderDepth = 0;
+
+  function showLoader(message) {
+    const overlay = $("appLoader");
+    const text = $("appLoaderText");
+    if (text) text.textContent = message || "Caricamento…";
+    loaderDepth += 1;
+    if (overlay) overlay.classList.remove("hidden");
+  }
+
+  function hideLoader() {
+    loaderDepth = Math.max(0, loaderDepth - 1);
+    if (loaderDepth > 0) return;
+    const overlay = $("appLoader");
+    if (overlay) overlay.classList.add("hidden");
+  }
+
+  async function runWithLoader(message, fn) {
+    showLoader(message);
+    try {
+      return await fn();
+    } finally {
+      hideLoader();
+    }
+  }
 
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -3334,14 +3419,16 @@ input[type="range"] {
     frozenRange = null;
     tapTimestamps = [];
 
-    await persistCriticalSave("Exit reader");
-
-    showWordMode();
     $("reader").classList.add("hidden");
     $("main").classList.remove("hidden");
+    showWordMode();
 
     renderLibrary();
     updateMainUi();
+
+    await runWithLoader("Salvataggio sessione…", async () => {
+      await persistCriticalSave("Exit reader");
+    });
 
     haptic("medium");
     setStatus("Session saved.");
@@ -3687,66 +3774,67 @@ input[type="range"] {
     }
 
     setStatus("Reading PDF...");
+    await runWithLoader("Elaborazione PDF…", async () => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      const buffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
 
-    const buffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+      let out = "";
 
-    let out = "";
+      for (let p = 1; p <= pdf.numPages; p++) {
+        setStatus("Reading page " + p + "/" + pdf.numPages + "...");
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        out += content.items.map(item => item.str).join(" ") + "\n\n";
+        await sleep(5);
+      }
 
-    for (let p = 1; p <= pdf.numPages; p++) {
-      setStatus("Reading page " + p + "/" + pdf.numPages + "...");
-      const page = await pdf.getPage(p);
-      const content = await page.getTextContent();
-      out += content.items.map(item => item.str).join(" ") + "\n\n";
-      await sleep(5);
-    }
+      const text = normalizeText(out);
 
-    const text = normalizeText(out);
+      if (!text.trim()) {
+        setStatus("This PDF has no selectable text.");
+        return;
+      }
 
-    if (!text.trim()) {
-      setStatus("This PDF has no selectable text.");
-      return;
-    }
+      const title = file.name.replace(/\.pdf$/i, "") || "PDF senza titolo";
+      const newWords = tokenizeText(text);
 
-    const title = file.name.replace(/\.pdf$/i, "") || "PDF senza titolo";
-    const newWords = tokenizeText(text);
+      const book = {
+        id: makeId(),
+        title,
+        text,
+        index: 0,
+        wpm: Number(wpm || 330),
+        ctxCount: Number(ctxCount || 9),
+        settings: makeSettings(),
+        source: "pdf",
+        pages: pdf.numPages,
+        wordCount: newWords.length,
+        savedAt: Date.now()
+      };
 
-    const book = {
-      id: makeId(),
-      title,
-      text,
-      index: 0,
-      wpm: Number(wpm || 330),
-      ctxCount: Number(ctxCount || 9),
-      settings: makeSettings(),
-      source: "pdf",
-      pages: pdf.numPages,
-      wordCount: newWords.length,
-      savedAt: Date.now()
-    };
+      library.books.unshift(book);
+      currentBookId = book.id;
+      library.currentBookId = currentBookId;
 
-    library.books.unshift(book);
-    currentBookId = book.id;
-    library.currentBookId = currentBookId;
+      $("bookTitle").value = title;
+      words = newWords;
+      index = 0;
+      lastRenderedIndex = 0;
 
-    $("bookTitle").value = title;
-    words = newWords;
-    index = 0;
-    lastRenderedIndex = 0;
+      saveLocalOnly();
+      renderLibrary();
+      updateMainUi();
 
-    saveLocalOnly();
-    renderLibrary();
-    updateMainUi();
+      setStatus("PDF read. Saving to library...");
+      await nativeChunked("bookupsert", book, "Saving PDF");
+      await nativeSmall("state", makeStatePayload());
 
-    setStatus("PDF read. Saving to library...");
-    await nativeChunked("bookupsert", book, "Saving PDF");
-    await nativeSmall("state", makeStatePayload());
-
-    haptic("strong");
-    setStatus("PDF uploaded and saved: " + pdf.numPages + " pages.");
+      haptic("strong");
+      setStatus("PDF uploaded and saved: " + pdf.numPages + " pages.");
+    });
   }
 
   function resetSettingsToDefault() {
@@ -4133,17 +4221,22 @@ input[type="range"] {
     }
   });
 
-  $("backBtn").addEventListener("touchstart", async e => {
+  let backBtnBusy = false;
+  async function handleBackBtn(e) {
     e.preventDefault();
     e.stopPropagation();
-    await exitReader();
-  }, { passive:false });
+    if (backBtnBusy) return;
+    backBtnBusy = true;
+    try {
+      await exitReader();
+    } finally {
+      backBtnBusy = false;
+    }
+  }
 
-  $("backBtn").addEventListener("click", async e => {
-    e.preventDefault();
-    e.stopPropagation();
-    await exitReader();
-  });
+  $("backBtn").addEventListener("pointerup", handleBackBtn);
+  $("backBtn").addEventListener("touchend", handleBackBtn, { passive:false });
+  $("backBtn").addEventListener("click", handleBackBtn);
 
   $("autoToggleBtn").addEventListener("touchstart", e => {
     e.preventDefault();
@@ -4314,16 +4407,18 @@ input[type="range"] {
   }, 12000);
 
   async function initializeApp() {
-    authToken = String(localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "");
-    if (!authToken) {
-      await requireManualAuth();
-    }
-    await loadRemoteBootstrap();
-    if (!currentUser) {
-      await requireManualAuth();
+    await runWithLoader("Avvio app…", async () => {
+      authToken = String(localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "");
+      if (!authToken) {
+        await requireManualAuth();
+      }
       await loadRemoteBootstrap();
-    }
-    loadInitialFields();
+      if (!currentUser) {
+        await requireManualAuth();
+        await loadRemoteBootstrap();
+      }
+      loadInitialFields();
+    });
   }
 
   initializeApp();
