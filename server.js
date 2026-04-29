@@ -41,7 +41,7 @@ function authMiddleware(req, res, next) {
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
 
   if (!token) {
-    res.status(401).json({ error: 'Token mancante.' });
+    res.status(401).json({ error: 'Missing token.' });
     return;
   }
 
@@ -50,7 +50,7 @@ function authMiddleware(req, res, next) {
     req.userId = payload.sub;
     next();
   } catch (error) {
-    res.status(401).json({ error: 'Token non valido.' });
+    res.status(401).json({ error: 'Invalid token.' });
   }
 }
 
@@ -77,18 +77,45 @@ function issueAuthPayload(user) {
   return { token, user: userResponse(user) };
 }
 
+
+function createDemoBook(userId) {
+  const now = Date.now();
+  return {
+    id: `demo-${userId}`,
+    userId,
+    title: 'Welcome to FlashRead (Demo)',
+    text: 'This is your demo book. Add your own files or paste text to start speed reading right away.',
+    index: 0,
+    wpm: 320,
+    ctxCount: 3,
+    settings: {
+      fontScale: 72,
+      verticalPos: 45,
+      wordAlign: 'center',
+      adaptiveWpm: true,
+      theme: 'light',
+      fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif',
+      savedAt: now,
+      highlightBlocks: false,
+      groupShort: 'on'
+    },
+    savedAt: now,
+    updatedAt: now
+  };
+}
+
 app.post('/api/auth/register', async (req, res) => {
   const username = normalizeUsername(req.body.username);
   const password = String(req.body.password || '');
   const language = sanitizeLanguage(req.body.language);
 
   if (!/^[a-z0-9_.-]{3,32}$/.test(username)) {
-    res.status(400).json({ error: 'Username non valido.' });
+    res.status(400).json({ error: 'Invalid username.' });
     return;
   }
 
   if (password.length < 8) {
-    res.status(400).json({ error: 'Password troppo corta (min 8 caratteri).' });
+    res.status(400).json({ error: 'Password too short (min 8 characters).' });
     return;
   }
 
@@ -96,7 +123,7 @@ app.post('/api/auth/register', async (req, res) => {
   const existing = await users.findOne({ username });
 
   if (existing) {
-    res.status(409).json({ error: 'Username già registrato.' });
+    res.status(409).json({ error: 'Username already registered.' });
     return;
   }
 
@@ -120,13 +147,13 @@ app.post('/api/auth/login', async (req, res) => {
   const user = await users.findOne({ username });
 
   if (!user) {
-    res.status(401).json({ error: 'Credenziali non valide.' });
+    res.status(401).json({ error: 'Invalid credentials.' });
     return;
   }
 
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) {
-    res.status(401).json({ error: 'Credenziali non valide.' });
+    res.status(401).json({ error: 'Invalid credentials.' });
     return;
   }
 
@@ -143,11 +170,14 @@ app.get('/api/bootstrap', authMiddleware, async (req, res) => {
     user = await users.findOne({ _id: new ObjectId(userId) });
   }
 
-  const books = await db
-    .collection('books')
-    .find({ userId })
-    .sort({ savedAt: -1 })
-    .toArray();
+  const booksCollection = db.collection('books');
+  let books = await booksCollection.find({ userId }).sort({ savedAt: -1 }).toArray();
+
+  if (!books.length) {
+    const demoBook = createDemoBook(userId);
+    await booksCollection.insertOne(demoBook);
+    books = [demoBook];
+  }
 
   res.json({
     user: user ? userResponse(user) : null,
@@ -198,7 +228,7 @@ app.put('/api/state', authMiddleware, async (req, res) => {
 app.put('/api/books/:id', authMiddleware, async (req, res) => {
   const id = String(req.params.id || '').trim();
   if (!id) {
-    res.status(400).json({ error: 'ID libro non valido.' });
+    res.status(400).json({ error: 'Invalid book ID.' });
     return;
   }
 
