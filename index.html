@@ -1249,6 +1249,12 @@ input[type="range"] {
   will-change:transform;
 }
 
+.wordInner {
+  display:inline-block;
+  transform:translateX(0);
+  will-change:transform;
+}
+
 .focusLetter {
   color:var(--focus);
 }
@@ -3355,7 +3361,7 @@ input[type="range"] {
 
   function renderFocusWord(raw) {
     const word = String(raw || "—");
-    if (word === "—") return "—";
+    if (word === "—") return '<span class="wordInner">—</span>';
 
     if (!settings.focusLetter) return escapeHtml(word);
 
@@ -3386,24 +3392,25 @@ input[type="range"] {
       }
     });
 
-    return result;
+    return '<span class="wordInner">' + result + '</span>';
   }
 
   function alignFocusLetterAnchor() {
     const wordEl = $("word");
+    const innerEl = wordEl ? wordEl.querySelector(".wordInner") : null;
 
-    if (!wordEl) return;
+    if (!wordEl || !innerEl) return;
 
     if (!settings.focusLetter) {
-      wordEl.style.transform = "none";
+      innerEl.style.transform = "translateX(0)";
       return;
     }
 
-    const focusEl = wordEl.querySelector(".focusLetter");
+    const focusEl = innerEl.querySelector(".focusLetter");
     const box = $("wordBox");
 
     if (!focusEl || !box) {
-      wordEl.style.transform = "none";
+      innerEl.style.transform = "translateX(0)";
       return;
     }
 
@@ -3415,7 +3422,7 @@ input[type="range"] {
     const targetCenter = boxRect.left + boxRect.width / 2;
     const shift = targetCenter - focusCenter;
 
-    wordEl.style.transform = `translateX(${shift.toFixed(2)}px)`;
+    innerEl.style.transform = `translateX(${shift.toFixed(2)}px)`;
   }
 
   function fitWord() {
