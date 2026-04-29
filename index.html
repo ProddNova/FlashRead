@@ -4522,11 +4522,13 @@ input[type="range"] {
   }, 12000);
 
   async function initializeApp() {
+    authToken = String(localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "");
+
+    if (!authToken) {
+      await requireManualAuth();
+    }
+
     await runWithLoader("Avvio app…", async () => {
-      authToken = String(localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "");
-      if (!authToken) {
-        await requireManualAuth();
-      }
       await loadRemoteBootstrap();
       if (!currentUser) {
         await requireManualAuth();
