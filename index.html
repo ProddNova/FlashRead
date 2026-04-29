@@ -3395,35 +3395,7 @@ input[type="range"] {
     return '<span class="wordInner">' + result + '</span>';
   }
 
-  function alignFocusLetterAnchor() {
-    const wordEl = $("word");
-    const innerEl = wordEl ? wordEl.querySelector(".wordInner") : null;
 
-    if (!wordEl || !innerEl) return;
-
-    if (!settings.focusLetter) {
-      innerEl.style.transform = "translateX(0)";
-      return;
-    }
-
-    const focusEl = innerEl.querySelector(".focusLetter");
-    const box = $("wordBox");
-
-    if (!focusEl || !box) {
-      innerEl.style.transform = "translateX(0)";
-      return;
-    }
-
-    const focusRect = focusEl.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    if (!focusRect.width || !boxRect.width) return;
-
-    const focusCenter = focusRect.left + focusRect.width / 2;
-    const targetCenter = boxRect.left + boxRect.width / 2;
-    const shift = targetCenter - focusCenter;
-
-    innerEl.style.transform = `translateX(${shift.toFixed(2)}px)`;
-  }
 
   function fitWord() {
     const el = $("word");
@@ -3446,7 +3418,6 @@ input[type="range"] {
       el.style.fontSize = size + "px";
     }
 
-    alignFocusLetterAnchor();
   }
 
   function renderGhosts() {
@@ -3662,7 +3633,6 @@ input[type="range"] {
     applyReaderSettings();
 
     $("word").innerHTML = renderFocusWord(words[index]);
-    alignFocusLetterAnchor();
     $("countLabel").textContent = (index + 1) + " / " + words.length;
 
     const percent = words.length ? ((index + 1) / words.length) * 100 : 0;
