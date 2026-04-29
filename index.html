@@ -3517,12 +3517,25 @@ input[type="range"] {
     renderLibrary();
     updateMainUi();
 
+    let saveTimedOut = false;
+
     await runWithLoader("Salvataggio sessione…", async () => {
-      await persistCriticalSave("Exit reader", { fullBook:false });
+      const saveTask = persistCriticalSave("Exit reader", { fullBook:false }).catch(e => {
+        console.log("Exit reader save error", e);
+      });
+
+      saveTimedOut = await Promise.race([
+        saveTask.then(() => false),
+        sleep(2000).then(() => true)
+      ]);
     });
 
     haptic("medium");
-    setStatus("Session saved.");
+    if (saveTimedOut) {
+      setStatus("Session save in background. You can keep using the app.");
+    } else {
+      setStatus("Session saved.");
+    }
   }
 
   function startReading(useSaved) {
