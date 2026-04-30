@@ -1848,7 +1848,7 @@ input[type="range"] {
           <div class="groupTitle">Custom theme</div>
 
           <div>
-            <div class="labelRow"><label>Nome tema</label></div>
+            <div class="labelRow"><label>Theme name</label></div>
             <input id="customThemeName" placeholder="My theme">
           </div>
 
@@ -1886,7 +1886,7 @@ input[type="range"] {
           <div>
             <div class="labelRow"><label>Font reading</label></div>
             <select id="fontFamily"><option value="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" style="font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;">Apple System</option><option value="Avenir Next,Avenir,sans-serif" style="font-family: &quot;Avenir Next&quot;, Avenir, sans-serif;">Avenir Next</option><option value="Helvetica Neue,Helvetica,Arial,sans-serif" style="font-family: &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif;">Helvetica Neue</option><option value="Futura,Helvetica,Arial,sans-serif" style="font-family: Futura, Helvetica, Arial, sans-serif;">Futura</option><option value="Gill Sans,Helvetica,Arial,sans-serif" style="font-family: &quot;Gill Sans&quot;, Helvetica, Arial, sans-serif;">Gill Sans</option><option value="Verdana,sans-serif" style="font-family: Verdana, sans-serif;">Verdana</option><option value="Trebuchet MS,sans-serif" style="font-family: &quot;Trebuchet MS&quot;, sans-serif;">Trebuchet</option><option value="Georgia,serif" style="font-family: Georgia, serif;">Georgia</option><option value="Baskerville,Georgia,serif" style="font-family: Baskerville, Georgia, serif;">Baskerville</option><option value="Palatino,Georgia,serif" style="font-family: Palatino, Georgia, serif;">Palatino</option><option value="Times New Roman,Times,serif" style="font-family: &quot;Times New Roman&quot;, Times, serif;">Times</option><option value="American Typewriter,Georgia,serif" style="font-family: &quot;American Typewriter&quot;, Georgia, serif;">American Typewriter</option><option value="Courier New,Courier,monospace" style="font-family: &quot;Courier New&quot;, Courier, monospace;">Courier</option><option value="Menlo,monospace" style="font-family: Menlo, monospace;">Menlo</option><option value="Didot,Georgia,serif" style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;">Didot</option><option value="Hoefler Text,Georgia,serif" style="font-family: &quot;Hoefler Text&quot;, Georgia, serif;">Hoefler</option><option value="Marker Felt,Chalkboard SE,sans-serif" style="font-family: &quot;Marker Felt&quot;, &quot;Chalkboard SE&quot;, sans-serif;">Marker Felt</option><option value="Noteworthy,Marker Felt,sans-serif" style="font-family: Noteworthy, &quot;Marker Felt&quot;, sans-serif;">Noteworthy</option><option value="Chalkboard SE,Comic Sans MS,sans-serif" style="font-family: &quot;Chalkboard SE&quot;, &quot;Comic Sans MS&quot;, sans-serif;">Chalkboard</option><option value="Snell Roundhand,Georgia,serif" style="font-family: &quot;Snell Roundhand&quot;, Georgia, serif;">Snell</option></select>
-            <div class="toggleSub">Ogni tema ha il suo font: cambiando qui aggiorni il tema selezionato.</div>
+            <div class="toggleSub">Each theme has its own font: changing this updates the selected theme.</div>
           </div>
 
           <div style="height:13px"></div>
@@ -1927,7 +1927,7 @@ input[type="range"] {
       <div class="sheetTitle">Import custom themes</div>
     </div>
     <div class="sheetBody">
-      <div class="toggleSub">Incolla un JSON con <code>customThemes</code> oppure un array di temi personalizzati.</div>
+      <div class="toggleSub">Paste JSON with <code>customThemes</code> or an array of custom themes.</div>
       <div style="height:12px"></div>
       <textarea id="importThemeJsonInput" placeholder='{"customThemes":[{"id":"custom-1","name":"My Theme","vars":{"bg":"#111111","card":"#1f1f1f","ink":"#f5f5f5","muted":"#b3b3b3","accent":"#22c55e","accent2":"#16a34a"}}]}' style="width:100%;min-height:180px;resize:vertical;padding:12px;border-radius:14px;border:1px solid var(--line);background:var(--card2);color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;"></textarea>
       <div style="height:12px"></div>
@@ -3605,7 +3605,7 @@ input[type="range"] {
   function importCustomThemesFromJson() {
     const raw = String($("importThemeJsonInput").value || "").trim();
     if (!raw) {
-      setStatus("Incolla un JSON valido prima di importare.");
+      setStatus("Paste valid JSON before importing.");
       return;
     }
 
