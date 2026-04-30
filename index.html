@@ -3652,26 +3652,110 @@ input[type="range"] {
     }
   }
 
-  async function importCustomThemesFromClipboard() {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text || !text.trim()) {
-        setStatus("Clipboard is empty.");
-        return;
-      }
-      const raw = JSON.parse(text);
-      applyImportedCustomThemes(raw);
-    } catch (err) {
-      console.log("Custom theme import clipboard error", err);
-      const manual = window.prompt("Paste custom themes JSON here:", "");
-      if (manual === null) return;
+  function openManualThemeImport(initialText) {
+    const existing = document.getElementById("themeImportFallback");
+    if (existing) existing.remove();
+
+    const wrap = document.createElement("div");
+    wrap.id = "themeImportFallback";
+    wrap.style.position = "fixed";
+    wrap.style.inset = "0";
+    wrap.style.zIndex = "221";
+    wrap.style.background = "rgba(0,0,0,.72)";
+    wrap.style.padding = "16px";
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "center";
+
+    const card = document.createElement("div");
+    card.style.width = "min(680px, 100%)";
+    card.style.maxHeight = "min(80vh, 640px)";
+    card.style.background = "#0f0f12";
+    card.style.border = "1px solid rgba(255,255,255,.16)";
+    card.style.borderRadius = "18px";
+    card.style.padding = "14px";
+
+    const title = document.createElement("div");
+    title.textContent = "Paste custom themes JSON";
+    title.style.fontWeight = "800";
+    title.style.marginBottom = "10px";
+
+    const ta = document.createElement("textarea");
+    ta.value = initialText || "";
+    ta.placeholder = '{
+  "customThemes": [ ... ]
+}';
+    ta.style.width = "100%";
+    ta.style.height = "46vh";
+    ta.style.maxHeight = "420px";
+    ta.style.background = "#141419";
+    ta.style.color = "#fff";
+    ta.style.border = "1px solid rgba(255,255,255,.18)";
+    ta.style.borderRadius = "12px";
+    ta.style.padding = "10px";
+
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.gap = "8px";
+    actions.style.marginTop = "10px";
+
+    const importBtn = document.createElement("button");
+    importBtn.type = "button";
+    importBtn.textContent = "Importa";
+    importBtn.style.padding = "10px 14px";
+    importBtn.style.borderRadius = "10px";
+    importBtn.style.border = "1px solid rgba(255,255,255,.2)";
+    importBtn.style.background = "#2c3440";
+    importBtn.style.color = "#fff";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "Chiudi";
+    closeBtn.style.padding = "10px 14px";
+    closeBtn.style.borderRadius = "10px";
+    closeBtn.style.border = "1px solid rgba(255,255,255,.2)";
+    closeBtn.style.background = "#1f1f25";
+    closeBtn.style.color = "#fff";
+
+    importBtn.addEventListener("click", () => {
       try {
-        const raw = JSON.parse(String(manual || "{}"));
+        const raw = JSON.parse(String(ta.value || "{}"));
         applyImportedCustomThemes(raw);
+        wrap.remove();
       } catch (parseErr) {
         console.log("Custom theme manual import error", parseErr);
         setStatus("Invalid JSON for custom themes.");
       }
+    });
+
+    closeBtn.addEventListener("click", () => wrap.remove());
+    wrap.addEventListener("click", e => { if (e.target === wrap) wrap.remove(); });
+
+    actions.appendChild(importBtn);
+    actions.appendChild(closeBtn);
+    card.appendChild(title);
+    card.appendChild(ta);
+    card.appendChild(actions);
+    wrap.appendChild(card);
+    document.body.appendChild(wrap);
+
+    ta.focus();
+    ta.select();
+  }
+
+  async function importCustomThemesFromClipboard() {
+    let clipboardText = "";
+    try {
+      if (navigator.clipboard?.readText) {
+        clipboardText = await navigator.clipboard.readText();
+      }
+    } catch (err) {
+      console.log("Custom theme import clipboard error", err);
+    }
+
+    openManualThemeImport(clipboardText || "");
+    if (!clipboardText) {
+      setStatus("Paste JSON and press Import.");
     }
   }
 
