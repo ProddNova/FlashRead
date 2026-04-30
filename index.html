@@ -2550,7 +2550,7 @@ input[type="range"] {
   function getLibrary() {
     const local = normalizeLibrary(getLocalJson(LIBRARY_KEY));
     const remote = normalizeLibrary(REMOTE_LIBRARY);
-    if (authToken && remote.books.length) return remote;
+    if (authToken) return remote;
 
     function newest(lib) {
       return Math.max(...(lib.books || []).map(b => Number(b.savedAt || 0)), 0);
@@ -4457,6 +4457,16 @@ input[type="range"] {
         savedBook.savedAt = Math.max(Number(savedBook.savedAt || 0), Number(saved.savedAt || 0), Date.now());
         currentBookId = savedBook.id;
         library.currentBookId = savedBook.id;
+      }
+    }
+
+    if (!library.currentBookId && library.books.length) {
+      const newestBook = library.books
+        .slice()
+        .sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0))[0];
+      if (newestBook) {
+        currentBookId = newestBook.id;
+        library.currentBookId = newestBook.id;
       }
     }
 
