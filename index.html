@@ -2296,7 +2296,7 @@ input[type="range"] {
     authResolver = null;
   }
 
-  function resetAppStateForUserSwitch() {
+  function resetAppStateForUserSwitch(clearLocalStorage) {
     REMOTE_SESSION = null;
     REMOTE_SETTINGS = null;
     REMOTE_LIBRARY = { books: [], currentBookId: null };
@@ -2306,12 +2306,15 @@ input[type="range"] {
     index = 0;
     lastRenderedIndex = 0;
     $("bookTitle").value = "";
-    localStorage.removeItem(KEY);
-    localStorage.removeItem(SETTINGS_KEY);
-    localStorage.removeItem(LIBRARY_KEY);
+    if (clearLocalStorage) {
+      localStorage.removeItem(KEY);
+      localStorage.removeItem(SETTINGS_KEY);
+      localStorage.removeItem(LIBRARY_KEY);
+    }
   }
 
-  async function requireManualAuth() {
+  async function requireManualAuth(options) {
+    const clearLocalOnSignIn = !!(options && options.clearLocalOnSignIn);
     authToken = "";
     currentUser = null;
     localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
@@ -2323,7 +2326,7 @@ input[type="range"] {
       if (!authToken) continue;
 
       localStorage.setItem("FLASHREAD_AUTH_TOKEN", authToken);
-      resetAppStateForUserSwitch();
+      resetAppStateForUserSwitch(clearLocalOnSignIn);
       setStatus("Signed in as " + (currentUser ? currentUser.username : "user"));
     }
   }
@@ -3147,9 +3150,9 @@ input[type="range"] {
     REMOTE_LIBRARY = { books: [], currentBookId: null };
 
     localStorage.removeItem("FLASHREAD_AUTH_TOKEN");
-    resetAppStateForUserSwitch();
+    resetAppStateForUserSwitch(true);
 
-    await requireManualAuth();
+    await requireManualAuth({ clearLocalOnSignIn: true });
     await loadRemoteBootstrap();
     loadInitialFields();
 
