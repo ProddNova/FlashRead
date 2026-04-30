@@ -3572,16 +3572,76 @@ input[type="range"] {
       customThemes
     };
     const text = JSON.stringify(payload, null, 2);
+    const copiedMsg = customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " copied to clipboard.";
+
+    const legacyCopy = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      let ok = false;
+      try {
+        ok = document.execCommand && document.execCommand("copy");
+      } catch (_err) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      return !!ok;
+    };
 
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else if (!legacyCopy()) {
+        throw new Error("Clipboard API unavailable");
+      }
       haptic("light");
-      setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " copied to clipboard.");
+      setStatus(copiedMsg);
+      return;
     } catch (err) {
       console.log("Custom theme export clipboard error", err);
-      window.prompt("Clipboard unavailable. Copy this JSON manually:", text);
-      setStatus("Clipboard blocked. JSON opened for manual copy.");
     }
+
+    try {
+      if (navigator.share) {
+        const file = new File([text], "flashread-custom-themes.json", { type: "application/json" });
+        await navigator.share({
+          title: "FlashRead custom themes",
+          text: "FlashRead custom themes export",
+          files: [file]
+        });
+        haptic("light");
+        setStatus("Clipboard blocked. Opened iOS share sheet with JSON file.");
+        return;
+      }
+    } catch (shareErr) {
+      console.log("Custom theme export share error", shareErr);
+    }
+
+    try {
+      const blob = new Blob([text], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "flashread-custom-themes.json";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setStatus("Clipboard blocked. Downloaded JSON file.");
+      return;
+    } catch (downloadErr) {
+      console.log("Custom theme export download error", downloadErr);
+    }
+
+    window.prompt("Clipboard unavailable. Copy this JSON manually:", text);
+    setStatus("Clipboard blocked. JSON opened for manual copy.");
   }
 
   async function importCustomThemesFromClipboard() {
