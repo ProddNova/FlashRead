@@ -1875,13 +1875,6 @@ input[type="range"] {
 
           <div style="height:10px"></div>
 
-          <div class="grid2">
-            <button type="button" class="btn secondary" id="exportCustomThemesBtn">Export (copia)</button>
-            <button type="button" class="btn secondary" id="importCustomThemesBtn">Import (incolla)</button>
-          </div>
-
-          <div style="height:10px"></div>
-
           <button type="button" class="btn danger" id="deleteCustomThemeBtn">Delete theme selezionato</button>
         </div>
 
@@ -3623,7 +3616,7 @@ input[type="range"] {
     ta.setSelectionRange(0, ta.value.length);
   }
 
-  async function exportCustomThemes() {
+  async function exportCustomThemes_DISABLED() {
     const customThemes = sanitizeCustomThemes(settings.customThemes || []);
     if (!customThemes.length) {
       setStatus("No custom themes to export.");
@@ -3743,7 +3736,7 @@ input[type="range"] {
     ta.select();
   }
 
-  async function importCustomThemesFromClipboard() {
+  async function importCustomThemesFromClipboard_DISABLED() {
     let clipboardText = "";
     try {
       if (navigator.clipboard?.readText) {
@@ -4579,8 +4572,6 @@ input[type="range"] {
   $("saveCustomThemeBtn").addEventListener("click", () => saveCustomTheme(false));
   $("updateCustomThemeBtn").addEventListener("click", () => saveCustomTheme(true));
   $("deleteCustomThemeBtn").addEventListener("click", deleteCustomTheme);
-  $("exportCustomThemesBtn").addEventListener("click", exportCustomThemes);
-  $("importCustomThemesBtn").addEventListener("click", importCustomThemesFromClipboard);
 
   ["customBg", "customCard", "customInk", "customMuted", "customAccent", "customAccent2"].forEach(id => {
     $(id).addEventListener("input", () => {
