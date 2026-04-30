@@ -1875,6 +1875,14 @@ input[type="range"] {
 
           <div style="height:10px"></div>
 
+          <div class="grid2">
+            <button type="button" class="btn secondary" id="exportCustomThemesBtn">Export themes</button>
+            <button type="button" class="btn secondary" id="importCustomThemesBtn">Import themes</button>
+          </div>
+          <input id="importCustomThemesInput" type="file" accept="application/json,.json" class="hidden">
+
+          <div style="height:10px"></div>
+
           <button type="button" class="btn danger" id="deleteCustomThemeBtn">Delete theme selezionato</button>
         </div>
 
@@ -3522,6 +3530,79 @@ input[type="range"] {
     setStatus("Custom theme deleted.");
   }
 
+  function exportCustomThemes() {
+    const customThemes = sanitizeCustomThemes(settings.customThemes || []);
+    if (!customThemes.length) {
+      setStatus("No custom themes to export.");
+      return;
+    }
+
+    const payload = {
+      exportedAt: Date.now(),
+      version: 1,
+      customThemes
+    };
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "flashread-custom-themes-" + stamp + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+
+    haptic("light");
+    setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " exported.");
+  }
+
+  function importCustomThemesFromFile(file) {
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const raw = JSON.parse(String(reader.result || "{}"));
+        const incoming = Array.isArray(raw)
+          ? raw
+          : (raw && Array.isArray(raw.customThemes) ? raw.customThemes : []);
+        const cleanIncoming = sanitizeCustomThemes(incoming);
+
+        if (!cleanIncoming.length) {
+          setStatus("No valid custom themes found in file.");
+          return;
+        }
+
+        const map = new Map();
+        sanitizeCustomThemes(settings.customThemes || []).forEach(theme => map.set(theme.id, theme));
+        cleanIncoming.forEach(theme => map.set(theme.id, theme));
+
+        settings.customThemes = Array.from(map.values()).slice(0, 12);
+
+        if (!getAllThemes().some(t => t.id === settings.theme)) {
+          settings.theme = settings.customThemes[0] ? settings.customThemes[0].id : "indie";
+        }
+
+        settings.savedAt = Date.now();
+        applySettingsToControls();
+        forceSaveNow();
+        render();
+
+        haptic("medium");
+        setStatus(cleanIncoming.length + " custom theme" + (cleanIncoming.length === 1 ? "" : "s") + " imported.");
+      } catch (err) {
+        console.log("Custom theme import error", err);
+        setStatus("Invalid JSON file for custom themes.");
+      }
+    };
+    reader.onerror = () => {
+      setStatus("Unable to read file.");
+    };
+    reader.readAsText(file);
+  }
+
   function toggleThemeMenu() {
     themeMenuOpen = !themeMenuOpen;
     $("themeMenu").classList.toggle("hidden", !themeMenuOpen);
@@ -4342,6 +4423,16 @@ input[type="range"] {
   $("saveCustomThemeBtn").addEventListener("click", () => saveCustomTheme(false));
   $("updateCustomThemeBtn").addEventListener("click", () => saveCustomTheme(true));
   $("deleteCustomThemeBtn").addEventListener("click", deleteCustomTheme);
+  $("exportCustomThemesBtn").addEventListener("click", exportCustomThemes);
+  $("importCustomThemesBtn").addEventListener("click", () => {
+    const input = $("importCustomThemesInput");
+    input.value = "";
+    input.click();
+  });
+  $("importCustomThemesInput").addEventListener("change", e => {
+    const file = e.target && e.target.files ? e.target.files[0] : null;
+    importCustomThemesFromFile(file);
+  });
 
   ["customBg", "customCard", "customInk", "customMuted", "customAccent", "customAccent2"].forEach(id => {
     $(id).addEventListener("input", () => {
