@@ -1875,6 +1875,10 @@ input[type="range"] {
 
           <div style="height:10px"></div>
 
+          <button type="button" class="btn secondary" id="importCustomThemeBtn">Importa da JSON</button>
+
+          <div style="height:10px"></div>
+
           <button type="button" class="btn danger" id="deleteCustomThemeBtn">Delete theme selezionato</button>
         </div>
 
@@ -1888,6 +1892,25 @@ input[type="range"] {
           </div>
         </div>
 
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="modalShade hidden" id="importThemeModal">
+  <div class="sheet">
+    <div class="sheetTop">
+      <button type="button" class="closeLeftBtn" id="closeImportThemeModalBtn">×</button>
+      <div class="sheetTitle">Import custom themes</div>
+    </div>
+    <div class="sheetBody">
+      <div class="toggleSub">Incolla un JSON con <code>customThemes</code> oppure un array di temi personalizzati.</div>
+      <div style="height:12px"></div>
+      <textarea id="importThemeJsonInput" placeholder='{"customThemes":[{"id":"custom-1","name":"My Theme","vars":{"bg":"#111111","card":"#1f1f1f","ink":"#f5f5f5","muted":"#b3b3b3","accent":"#22c55e","accent2":"#16a34a"}}]}' style="width:100%;min-height:180px;resize:vertical;padding:12px;border-radius:14px;border:1px solid var(--line);background:var(--card2);color:var(--ink);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;"></textarea>
+      <div style="height:12px"></div>
+      <div class="quickRow">
+        <button type="button" class="btn" id="confirmImportThemeBtn">Importa temi</button>
+        <button type="button" class="btn secondary" id="cancelImportThemeBtn">Annulla</button>
       </div>
     </div>
   </div>
@@ -3522,6 +3545,53 @@ input[type="range"] {
     setStatus("Custom theme deleted.");
   }
 
+  function openImportThemeModal() {
+    $("importThemeJsonInput").value = "";
+    $("importThemeModal").classList.remove("hidden");
+  }
+
+  function closeImportThemeModal() {
+    $("importThemeModal").classList.add("hidden");
+  }
+
+  function importCustomThemesFromJson() {
+    const raw = String($("importThemeJsonInput").value || "").trim();
+    if (!raw) {
+      setStatus("Incolla un JSON valido prima di importare.");
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      setStatus("JSON non valido.");
+      return;
+    }
+
+    const importedSource = Array.isArray(parsed)
+      ? parsed
+      : (parsed && Array.isArray(parsed.customThemes) ? parsed.customThemes : []);
+
+    const importedThemes = sanitizeCustomThemes(importedSource);
+    if (!importedThemes.length) {
+      setStatus("Nessun custom theme valido trovato nel JSON.");
+      return;
+    }
+
+    const combined = sanitizeCustomThemes(importedThemes.concat(settings.customThemes || []));
+    settings.customThemes = combined.slice(0, 12);
+    settings.theme = settings.customThemes[0].id;
+    settings.savedAt = Date.now();
+
+    applySettingsToControls();
+    forceSaveNow();
+    render();
+    closeImportThemeModal();
+    setStatus(importedThemes.length + " custom theme importati.");
+    haptic("medium");
+  }
+
   function toggleThemeMenu() {
     themeMenuOpen = !themeMenuOpen;
     $("themeMenu").classList.toggle("hidden", !themeMenuOpen);
@@ -4342,6 +4412,10 @@ input[type="range"] {
   $("saveCustomThemeBtn").addEventListener("click", () => saveCustomTheme(false));
   $("updateCustomThemeBtn").addEventListener("click", () => saveCustomTheme(true));
   $("deleteCustomThemeBtn").addEventListener("click", deleteCustomTheme);
+  $("importCustomThemeBtn").addEventListener("click", openImportThemeModal);
+  $("closeImportThemeModalBtn").addEventListener("click", closeImportThemeModal);
+  $("cancelImportThemeBtn").addEventListener("click", closeImportThemeModal);
+  $("confirmImportThemeBtn").addEventListener("click", importCustomThemesFromJson);
 
   ["customBg", "customCard", "customInk", "customMuted", "customAccent", "customAccent2"].forEach(id => {
     $(id).addEventListener("input", () => {
