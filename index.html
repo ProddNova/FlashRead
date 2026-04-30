@@ -3623,7 +3623,7 @@ input[type="range"] {
     ta.setSelectionRange(0, ta.value.length);
   }
 
-  async function exportCustomThemes() {
+  function exportCustomThemes() {
     const customThemes = sanitizeCustomThemes(settings.customThemes || []);
     if (!customThemes.length) {
       setStatus("No custom themes to export.");
@@ -3632,45 +3632,10 @@ input[type="range"] {
 
     const payload = { exportedAt: Date.now(), version: 1, customThemes };
     const text = JSON.stringify(payload, null, 2);
-    const copiedMsg = customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " copied to clipboard.";
-
-    const legacyCopy = () => {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.setAttribute("readonly", "");
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      ta.style.left = "-9999px";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      ta.setSelectionRange(0, ta.value.length);
-      let ok = false;
-      try {
-        ok = document.execCommand && document.execCommand("copy");
-      } catch (_err) {
-        ok = false;
-      }
-      document.body.removeChild(ta);
-      return !!ok;
-    };
-
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      } else if (!legacyCopy()) {
-        throw new Error("Clipboard API unavailable");
-      }
-      haptic("light");
-      setStatus(copiedMsg);
-      return;
-    } catch (err) {
-      console.log("Custom theme export clipboard error", err);
-    }
 
     openManualThemeExport(text);
     haptic("light");
-    setStatus("Clipboard blocked on this device. JSON opened and selected for manual copy.");
+    setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " ready for manual copy.");
   }
 
   async function importCustomThemesFromClipboard() {
