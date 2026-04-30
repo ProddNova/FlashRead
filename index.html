@@ -2177,7 +2177,8 @@ input[type="range"] {
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    const kit = settings.soundKit || "soft";
+    const themeVars = (getTheme() && getTheme().vars) || {};
+    const kit = themeVars.soundKit || settings.soundKit || "soft";
     const configs = {
       soft: { click:[780, 520, "sine", .018], word:[600, 420, "triangle", .035], comma:[520, 430, "sine", .03], dot:[430, 300, "triangle", .045] },
       digital: { click:[980, 760, "square", .015], word:[720, 540, "sawtooth", .028], comma:[860, 680, "square", .02], dot:[620, 440, "sawtooth", .03] },
@@ -2879,10 +2880,13 @@ input[type="range"] {
       btn.classList.toggle("active", btn.dataset.align === settings.wordAlign);
     });
 
+    const themeVars = (getTheme() && getTheme().vars) || {};
+    const currentAnim = themeVars.textAnimation || settings.textAnimation;
+    const currentKit = themeVars.soundKit || settings.soundKit || "soft";
     document.querySelectorAll("#animPicker .animOption").forEach(btn => {
-      btn.classList.toggle("active", btn.dataset.anim === settings.textAnimation);
+      btn.classList.toggle("active", btn.dataset.anim === currentAnim);
     });
-    $("soundKit").value = settings.soundKit || "soft";
+    $("soundKit").value = currentKit;
 
     setSwitch("adaptiveToggle", settings.adaptiveWpm);
     setSwitch("readingHapticsToggle", settings.readingHaptics);
@@ -2928,6 +2932,10 @@ input[type="range"] {
     block.style.fontFamily = themedFont;
     ghostPrev.style.fontFamily = themedFont;
     ghostNext.style.fontFamily = themedFont;
+    block.style.textShadow = "none";
+    block.style.webkitTextStroke = "0 transparent";
+    ghostPrev.style.textShadow = "none";
+    ghostNext.style.textShadow = "none";
   }
 
   function updatePreview() {
@@ -3523,6 +3531,11 @@ input[type="range"] {
     $("customGlowStrength").value = String(Math.max(0, Math.min(100, Number(vars.textGlowStrength || 0))));
     $("customOutlineColor").value = safeHex(vars.textOutlineColor, "#000000");
     $("customOutlineWidth").value = String(Math.max(0, Math.min(4, Number(vars.textOutlineWidth || 0))));
+    $("soundKit").value = vars.soundKit || settings.soundKit || "soft";
+    const activeAnim = vars.textAnimation || settings.textAnimation || "pulse";
+    document.querySelectorAll("#animPicker .animOption").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.anim === activeAnim);
+    });
 
     $("updateCustomThemeBtn").disabled = !custom;
     $("deleteCustomThemeBtn").disabled = !custom;
@@ -3551,7 +3564,9 @@ input[type="range"] {
       textGlowColor: $("customTextGlow").value,
       textGlowStrength: Number($("customGlowStrength").value || 0),
       textOutlineColor: $("customOutlineColor").value,
-      textOutlineWidth: Number($("customOutlineWidth").value || 0)
+      textOutlineWidth: Number($("customOutlineWidth").value || 0),
+      textAnimation: (document.querySelector("#animPicker .animOption.active") || {}).dataset?.anim || "pulse",
+      soundKit: $("soundKit").value || "soft"
     });
 
     const customThemes = sanitizeCustomThemes(settings.customThemes || []);
@@ -3964,9 +3979,11 @@ input[type="range"] {
     if (dir) {
       void box.offsetWidth;
       box.classList.add(dir);
-      if (settings.textAnimation === "glide") box.classList.add("animGlide");
-      else if (settings.textAnimation === "zoom") box.classList.add("animZoom");
-      else if (settings.textAnimation === "flow") box.classList.add("animFlow");
+      const themeVars = (getTheme() && getTheme().vars) || {};
+      const textAnim = themeVars.textAnimation || settings.textAnimation || "pulse";
+      if (textAnim === "glide") box.classList.add("animGlide");
+      else if (textAnim === "zoom") box.classList.add("animZoom");
+      else if (textAnim === "flow") box.classList.add("animFlow");
       else box.classList.add("animSoft");
     }
 
@@ -4549,7 +4566,16 @@ input[type="range"] {
     render();
   });
   $("soundKit").addEventListener("change", () => {
-    settings.soundKit = $("soundKit").value || "soft";
+    const nextKit = $("soundKit").value || "soft";
+    settings.soundKit = nextKit;
+    const theme = getTheme();
+    if (theme) {
+      theme.vars = theme.vars || {};
+      theme.vars.soundKit = nextKit;
+      if (theme.custom) {
+        settings.customThemes = sanitizeCustomThemes(getAllThemes().filter(t => t.custom));
+      }
+    }
     settings.savedAt = Date.now();
     settingsChanged(true);
     forceSaveNow();
@@ -4570,7 +4596,16 @@ input[type="range"] {
 
   document.querySelectorAll("#animPicker .animOption").forEach(btn => {
     btn.addEventListener("click", () => {
-      settings.textAnimation = btn.dataset.anim || "pulse";
+      const nextAnim = btn.dataset.anim || "pulse";
+      settings.textAnimation = nextAnim;
+      const theme = getTheme();
+      if (theme) {
+        theme.vars = theme.vars || {};
+        theme.vars.textAnimation = nextAnim;
+        if (theme.custom) {
+          settings.customThemes = sanitizeCustomThemes(getAllThemes().filter(t => t.custom));
+        }
+      }
       document.querySelectorAll("#animPicker .animOption").forEach(node => {
         node.classList.toggle("active", node === btn);
       });
