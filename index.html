@@ -3623,7 +3623,7 @@ input[type="range"] {
     ta.setSelectionRange(0, ta.value.length);
   }
 
-  function exportCustomThemes() {
+  async function exportCustomThemes() {
     const customThemes = sanitizeCustomThemes(settings.customThemes || []);
     if (!customThemes.length) {
       setStatus("No custom themes to export.");
@@ -3633,9 +3633,23 @@ input[type="range"] {
     const payload = { exportedAt: Date.now(), version: 1, customThemes };
     const text = JSON.stringify(payload, null, 2);
 
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      }
+    } catch (err) {
+      console.log("Custom theme export clipboard error", err);
+    }
+
     openManualThemeExport(text);
     haptic("light");
-    setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " ready for manual copy.");
+    if (copied) {
+      setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " copied to clipboard.");
+    } else {
+      setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " ready for manual copy.");
+    }
   }
 
   async function importCustomThemesFromClipboard() {
