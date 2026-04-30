@@ -3559,6 +3559,70 @@ input[type="range"] {
     setStatus(cleanIncoming.length + " custom theme" + (cleanIncoming.length === 1 ? "" : "s") + " imported from paste.");
   }
 
+  function openManualThemeExport(text) {
+    const existing = document.getElementById("themeExportFallback");
+    if (existing) existing.remove();
+
+    const wrap = document.createElement("div");
+    wrap.id = "themeExportFallback";
+    wrap.style.position = "fixed";
+    wrap.style.inset = "0";
+    wrap.style.zIndex = "220";
+    wrap.style.background = "rgba(0,0,0,.72)";
+    wrap.style.padding = "16px";
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "center";
+
+    const card = document.createElement("div");
+    card.style.width = "min(680px, 100%)";
+    card.style.maxHeight = "min(80vh, 640px)";
+    card.style.background = "#0f0f12";
+    card.style.border = "1px solid rgba(255,255,255,.16)";
+    card.style.borderRadius = "18px";
+    card.style.padding = "14px";
+
+    const title = document.createElement("div");
+    title.textContent = "Copy custom themes JSON";
+    title.style.fontWeight = "800";
+    title.style.marginBottom = "10px";
+
+    const ta = document.createElement("textarea");
+    ta.readOnly = true;
+    ta.value = text;
+    ta.style.width = "100%";
+    ta.style.height = "46vh";
+    ta.style.maxHeight = "420px";
+    ta.style.background = "#141419";
+    ta.style.color = "#fff";
+    ta.style.border = "1px solid rgba(255,255,255,.18)";
+    ta.style.borderRadius = "12px";
+    ta.style.padding = "10px";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "Chiudi";
+    closeBtn.style.marginTop = "10px";
+    closeBtn.style.padding = "10px 14px";
+    closeBtn.style.borderRadius = "10px";
+    closeBtn.style.border = "1px solid rgba(255,255,255,.2)";
+    closeBtn.style.background = "#1f1f25";
+    closeBtn.style.color = "#fff";
+
+    closeBtn.addEventListener("click", () => wrap.remove());
+    wrap.addEventListener("click", e => { if (e.target === wrap) wrap.remove(); });
+
+    card.appendChild(title);
+    card.appendChild(ta);
+    card.appendChild(closeBtn);
+    wrap.appendChild(card);
+    document.body.appendChild(wrap);
+
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+  }
+
   async function exportCustomThemes() {
     const customThemes = sanitizeCustomThemes(settings.customThemes || []);
     if (!customThemes.length) {
@@ -3566,11 +3630,7 @@ input[type="range"] {
       return;
     }
 
-    const payload = {
-      exportedAt: Date.now(),
-      version: 1,
-      customThemes
-    };
+    const payload = { exportedAt: Date.now(), version: 1, customThemes };
     const text = JSON.stringify(payload, null, 2);
     const copiedMsg = customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " copied to clipboard.";
 
@@ -3608,40 +3668,9 @@ input[type="range"] {
       console.log("Custom theme export clipboard error", err);
     }
 
-    try {
-      if (navigator.share) {
-        const file = new File([text], "flashread-custom-themes.json", { type: "application/json" });
-        await navigator.share({
-          title: "FlashRead custom themes",
-          text: "FlashRead custom themes export",
-          files: [file]
-        });
-        haptic("light");
-        setStatus("Clipboard blocked. Opened iOS share sheet with JSON file.");
-        return;
-      }
-    } catch (shareErr) {
-      console.log("Custom theme export share error", shareErr);
-    }
-
-    try {
-      const blob = new Blob([text], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "flashread-custom-themes.json";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      setStatus("Clipboard blocked. Downloaded JSON file.");
-      return;
-    } catch (downloadErr) {
-      console.log("Custom theme export download error", downloadErr);
-    }
-
-    window.prompt("Clipboard unavailable. Copy this JSON manually:", text);
-    setStatus("Clipboard blocked. JSON opened for manual copy.");
+    openManualThemeExport(text);
+    haptic("light");
+    setStatus("Clipboard blocked on this device. JSON opened and selected for manual copy.");
   }
 
   async function importCustomThemesFromClipboard() {
