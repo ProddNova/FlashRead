@@ -1876,10 +1876,9 @@ input[type="range"] {
           <div style="height:10px"></div>
 
           <div class="grid2">
-            <button type="button" class="btn secondary" id="exportCustomThemesBtn">Export themes</button>
-            <button type="button" class="btn secondary" id="importCustomThemesBtn">Import themes</button>
+            <button type="button" class="btn secondary" id="exportCustomThemesBtn">Export (copia)</button>
+            <button type="button" class="btn secondary" id="importCustomThemesBtn">Import (incolla)</button>
           </div>
-          <input id="importCustomThemesInput" type="file" accept="application/json,.json" class="hidden">
 
           <div style="height:10px"></div>
 
@@ -3530,7 +3529,37 @@ input[type="range"] {
     setStatus("Custom theme deleted.");
   }
 
-  function exportCustomThemes() {
+  function applyImportedCustomThemes(rawData) {
+    const incoming = Array.isArray(rawData)
+      ? rawData
+      : (rawData && Array.isArray(rawData.customThemes) ? rawData.customThemes : []);
+    const cleanIncoming = sanitizeCustomThemes(incoming);
+
+    if (!cleanIncoming.length) {
+      setStatus("No valid custom themes found in pasted JSON.");
+      return;
+    }
+
+    const map = new Map();
+    sanitizeCustomThemes(settings.customThemes || []).forEach(theme => map.set(theme.id, theme));
+    cleanIncoming.forEach(theme => map.set(theme.id, theme));
+
+    settings.customThemes = Array.from(map.values()).slice(0, 12);
+
+    if (!getAllThemes().some(t => t.id === settings.theme)) {
+      settings.theme = settings.customThemes[0] ? settings.customThemes[0].id : "indie";
+    }
+
+    settings.savedAt = Date.now();
+    applySettingsToControls();
+    forceSaveNow();
+    render();
+
+    haptic("medium");
+    setStatus(cleanIncoming.length + " custom theme" + (cleanIncoming.length === 1 ? "" : "s") + " imported from paste.");
+  }
+
+  async function exportCustomThemes() {
     const customThemes = sanitizeCustomThemes(settings.customThemes || []);
     if (!customThemes.length) {
       setStatus("No custom themes to export.");
@@ -3542,65 +3571,40 @@ input[type="range"] {
       version: 1,
       customThemes
     };
+    const text = JSON.stringify(payload, null, 2);
 
-    const stamp = new Date().toISOString().slice(0, 10);
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "flashread-custom-themes-" + stamp + ".json";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-
-    haptic("light");
-    setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " exported.");
+    try {
+      await navigator.clipboard.writeText(text);
+      haptic("light");
+      setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " copied to clipboard.");
+    } catch (err) {
+      console.log("Custom theme export clipboard error", err);
+      window.prompt("Clipboard unavailable. Copy this JSON manually:", text);
+      setStatus("Clipboard blocked. JSON opened for manual copy.");
+    }
   }
 
-  function importCustomThemesFromFile(file) {
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const raw = JSON.parse(String(reader.result || "{}"));
-        const incoming = Array.isArray(raw)
-          ? raw
-          : (raw && Array.isArray(raw.customThemes) ? raw.customThemes : []);
-        const cleanIncoming = sanitizeCustomThemes(incoming);
-
-        if (!cleanIncoming.length) {
-          setStatus("No valid custom themes found in file.");
-          return;
-        }
-
-        const map = new Map();
-        sanitizeCustomThemes(settings.customThemes || []).forEach(theme => map.set(theme.id, theme));
-        cleanIncoming.forEach(theme => map.set(theme.id, theme));
-
-        settings.customThemes = Array.from(map.values()).slice(0, 12);
-
-        if (!getAllThemes().some(t => t.id === settings.theme)) {
-          settings.theme = settings.customThemes[0] ? settings.customThemes[0].id : "indie";
-        }
-
-        settings.savedAt = Date.now();
-        applySettingsToControls();
-        forceSaveNow();
-        render();
-
-        haptic("medium");
-        setStatus(cleanIncoming.length + " custom theme" + (cleanIncoming.length === 1 ? "" : "s") + " imported.");
-      } catch (err) {
-        console.log("Custom theme import error", err);
-        setStatus("Invalid JSON file for custom themes.");
+  async function importCustomThemesFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text || !text.trim()) {
+        setStatus("Clipboard is empty.");
+        return;
       }
-    };
-    reader.onerror = () => {
-      setStatus("Unable to read file.");
-    };
-    reader.readAsText(file);
+      const raw = JSON.parse(text);
+      applyImportedCustomThemes(raw);
+    } catch (err) {
+      console.log("Custom theme import clipboard error", err);
+      const manual = window.prompt("Paste custom themes JSON here:", "");
+      if (manual === null) return;
+      try {
+        const raw = JSON.parse(String(manual || "{}"));
+        applyImportedCustomThemes(raw);
+      } catch (parseErr) {
+        console.log("Custom theme manual import error", parseErr);
+        setStatus("Invalid JSON for custom themes.");
+      }
+    }
   }
 
   function toggleThemeMenu() {
@@ -4424,15 +4428,7 @@ input[type="range"] {
   $("updateCustomThemeBtn").addEventListener("click", () => saveCustomTheme(true));
   $("deleteCustomThemeBtn").addEventListener("click", deleteCustomTheme);
   $("exportCustomThemesBtn").addEventListener("click", exportCustomThemes);
-  $("importCustomThemesBtn").addEventListener("click", () => {
-    const input = $("importCustomThemesInput");
-    input.value = "";
-    input.click();
-  });
-  $("importCustomThemesInput").addEventListener("change", e => {
-    const file = e.target && e.target.files ? e.target.files[0] : null;
-    importCustomThemesFromFile(file);
-  });
+  $("importCustomThemesBtn").addEventListener("click", importCustomThemesFromClipboard);
 
   ["customBg", "customCard", "customInk", "customMuted", "customAccent", "customAccent2"].forEach(id => {
     $(id).addEventListener("input", () => {
