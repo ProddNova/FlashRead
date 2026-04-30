@@ -2,7 +2,7 @@
 
 ## Guida rapida: custom theme JSON (con font ed effetti testo)
 
-Puoi importare temi personalizzati dal modal **Import custom themes** con JSON nel formato:
+You can import custom themes from the **Import custom themes** modal using JSON in this format:
 
 ```json
 {
@@ -32,7 +32,7 @@ Puoi importare temi personalizzati dal modal **Import custom themes** con JSON n
 ```
 
 ### Parametri principali (vars)
-- `fontFamily`: font del reader legato al tema.
+- `fontFamily`: reader font tied to the theme.
 - `textGlowColor`: colore luminosità testo.
 - `textGlowStrength`: intensità glow `0-100`.
 - `textOutlineColor`: colore bordo testo.
@@ -40,5 +40,5 @@ Puoi importare temi personalizzati dal modal **Import custom themes** con JSON n
 
 Note:
 - `id` dovrebbe iniziare con `custom-`.
-- Puoi importare anche direttamente un array di temi (senza wrapper `customThemes`).
+- You can also import an array of themes directly (without the `customThemes` wrapper).
 - Se alcuni campi mancano, FlashRead applica fallback automatici.
