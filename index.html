@@ -2550,7 +2550,10 @@ input[type="range"] {
   function getLibrary() {
     const local = normalizeLibrary(getLocalJson(LIBRARY_KEY));
     const remote = normalizeLibrary(REMOTE_LIBRARY);
-    if (authToken) return remote;
+    if (authToken) {
+      if (remote.books.length) return remote;
+      return local;
+    }
 
     function newest(lib) {
       return Math.max(...(lib.books || []).map(b => Number(b.savedAt || 0)), 0);
