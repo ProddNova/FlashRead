@@ -48,6 +48,7 @@ function authMiddleware(req, res, next) {
   try {
     const payload = jwt.verify(token, jwtSecret);
     req.userId = payload.sub;
+    req.username = payload.username || null;
     next();
   } catch (error) {
     res.status(401).json({ error: 'Invalid token.' });
@@ -75,6 +76,21 @@ function normalizeUsername(value) {
 function issueAuthPayload(user) {
   const token = jwt.sign({ sub: String(user._id), username: user.username }, jwtSecret, { expiresIn: '30d' });
   return { token, user: userResponse(user) };
+}
+
+async function resolveCanonicalUserId(req) {
+  const users = db.collection('users');
+  if (ObjectId.isValid(req.userId)) {
+    const user = await users.findOne({ _id: new ObjectId(req.userId) });
+    if (user) return String(user._id);
+  }
+
+  if (req.username) {
+    const user = await users.findOne({ username: normalizeUsername(req.username) });
+    if (user) return String(user._id);
+  }
+
+  return null;
 }
 
 
@@ -161,13 +177,20 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.get('/api/bootstrap', authMiddleware, async (req, res) => {
-  const userId = req.userId;
+  const userId = await resolveCanonicalUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: 'User not found.' });
+    return;
+  }
   const profile = await db.collection('profiles').findOne({ userId });
 
   const users = db.collection('users');
   let user = null;
   if (ObjectId.isValid(userId)) {
     user = await users.findOne({ _id: new ObjectId(userId) });
+  }
+  if (!user && req.username) {
+    user = await users.findOne({ username: normalizeUsername(req.username) });
   }
 
   const booksCollection = db.collection('books');
@@ -191,15 +214,20 @@ app.get('/api/bootstrap', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/settings', authMiddleware, async (req, res) => {
+  const userId = await resolveCanonicalUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: 'User not found.' });
+    return;
+  }
   const settings = req.body || {};
   await db.collection('profiles').updateOne(
-    { userId: req.userId },
+    { userId },
     {
       $set: {
         settings,
         updatedAt: Date.now()
       },
-      $setOnInsert: { userId: req.userId }
+      $setOnInsert: { userId }
     },
     { upsert: true }
   );
@@ -208,16 +236,21 @@ app.put('/api/settings', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/state', authMiddleware, async (req, res) => {
+  const userId = await resolveCanonicalUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: 'User not found.' });
+    return;
+  }
   const state = req.body || {};
   await db.collection('profiles').updateOne(
-    { userId: req.userId },
+    { userId },
     {
       $set: {
         session: state,
         currentBookId: state.currentBookId || null,
         updatedAt: Date.now()
       },
-      $setOnInsert: { userId: req.userId }
+      $setOnInsert: { userId }
     },
     { upsert: true }
   );
@@ -226,26 +259,41 @@ app.put('/api/state', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/books/:id', authMiddleware, async (req, res) => {
+  const userId = await resolveCanonicalUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: 'User not found.' });
+    return;
+  }
   const id = String(req.params.id || '').trim();
   if (!id) {
     res.status(400).json({ error: 'Invalid book ID.' });
     return;
   }
 
-  const book = { ...req.body, id, userId: req.userId, updatedAt: Date.now() };
-  await db.collection('books').updateOne({ userId: req.userId, id }, { $set: book }, { upsert: true });
+  const book = { ...req.body, id, userId, updatedAt: Date.now() };
+  await db.collection('books').updateOne({ userId, id }, { $set: book }, { upsert: true });
   res.json({ ok: true });
 });
 
 app.delete('/api/books/:id', authMiddleware, async (req, res) => {
+  const userId = await resolveCanonicalUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: 'User not found.' });
+    return;
+  }
   const id = String(req.params.id || '').trim();
-  await db.collection('books').deleteOne({ userId: req.userId, id });
+  await db.collection('books').deleteOne({ userId, id });
   res.json({ ok: true });
 });
 
 app.post('/api/clear', authMiddleware, async (req, res) => {
-  await db.collection('books').deleteMany({ userId: req.userId });
-  await db.collection('profiles').deleteOne({ userId: req.userId });
+  const userId = await resolveCanonicalUserId(req);
+  if (!userId) {
+    res.status(401).json({ error: 'User not found.' });
+    return;
+  }
+  await db.collection('books').deleteMany({ userId });
+  await db.collection('profiles').deleteOne({ userId });
   res.json({ ok: true });
 });
 

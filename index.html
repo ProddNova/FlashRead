@@ -2550,7 +2550,10 @@ input[type="range"] {
   function getLibrary() {
     const local = normalizeLibrary(getLocalJson(LIBRARY_KEY));
     const remote = normalizeLibrary(REMOTE_LIBRARY);
-    if (authToken && remote.books.length) return remote;
+    if (authToken) {
+      if (remote.books.length) return remote;
+      return local;
+    }
 
     function newest(lib) {
       return Math.max(...(lib.books || []).map(b => Number(b.savedAt || 0)), 0);
@@ -3522,6 +3525,236 @@ input[type="range"] {
     setStatus("Custom theme deleted.");
   }
 
+  function applyImportedCustomThemes(rawData) {
+    const incoming = Array.isArray(rawData)
+      ? rawData
+      : (rawData && Array.isArray(rawData.customThemes) ? rawData.customThemes : []);
+    const cleanIncoming = sanitizeCustomThemes(incoming);
+
+    if (!cleanIncoming.length) {
+      setStatus("No valid custom themes found in pasted JSON.");
+      return;
+    }
+
+    const map = new Map();
+    sanitizeCustomThemes(settings.customThemes || []).forEach(theme => map.set(theme.id, theme));
+    cleanIncoming.forEach(theme => map.set(theme.id, theme));
+
+    settings.customThemes = Array.from(map.values()).slice(0, 12);
+
+    if (!getAllThemes().some(t => t.id === settings.theme)) {
+      settings.theme = settings.customThemes[0] ? settings.customThemes[0].id : "indie";
+    }
+
+    settings.savedAt = Date.now();
+    applySettingsToControls();
+    forceSaveNow();
+    render();
+
+    haptic("medium");
+    setStatus(cleanIncoming.length + " custom theme" + (cleanIncoming.length === 1 ? "" : "s") + " imported from paste.");
+  }
+
+  function openManualThemeExport(text) {
+    const existing = document.getElementById("themeExportFallback");
+    if (existing) existing.remove();
+
+    const wrap = document.createElement("div");
+    wrap.id = "themeExportFallback";
+    wrap.style.position = "fixed";
+    wrap.style.inset = "0";
+    wrap.style.zIndex = "220";
+    wrap.style.background = "rgba(0,0,0,.72)";
+    wrap.style.padding = "16px";
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "center";
+
+    const card = document.createElement("div");
+    card.style.width = "min(680px, 100%)";
+    card.style.maxHeight = "min(80vh, 640px)";
+    card.style.background = "#0f0f12";
+    card.style.border = "1px solid rgba(255,255,255,.16)";
+    card.style.borderRadius = "18px";
+    card.style.padding = "14px";
+
+    const title = document.createElement("div");
+    title.textContent = "Copy custom themes JSON";
+    title.style.fontWeight = "800";
+    title.style.marginBottom = "10px";
+
+    const ta = document.createElement("textarea");
+    ta.readOnly = true;
+    ta.value = text;
+    ta.style.width = "100%";
+    ta.style.height = "46vh";
+    ta.style.maxHeight = "420px";
+    ta.style.background = "#141419";
+    ta.style.color = "#fff";
+    ta.style.border = "1px solid rgba(255,255,255,.18)";
+    ta.style.borderRadius = "12px";
+    ta.style.padding = "10px";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "Chiudi";
+    closeBtn.style.marginTop = "10px";
+    closeBtn.style.padding = "10px 14px";
+    closeBtn.style.borderRadius = "10px";
+    closeBtn.style.border = "1px solid rgba(255,255,255,.2)";
+    closeBtn.style.background = "#1f1f25";
+    closeBtn.style.color = "#fff";
+
+    closeBtn.addEventListener("click", () => wrap.remove());
+    wrap.addEventListener("click", e => { if (e.target === wrap) wrap.remove(); });
+
+    card.appendChild(title);
+    card.appendChild(ta);
+    card.appendChild(closeBtn);
+    wrap.appendChild(card);
+    document.body.appendChild(wrap);
+
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+  }
+
+  async function exportCustomThemes_DISABLED() {
+    const customThemes = sanitizeCustomThemes(settings.customThemes || []);
+    if (!customThemes.length) {
+      setStatus("No custom themes to export.");
+      return;
+    }
+
+    const payload = { exportedAt: Date.now(), version: 1, customThemes };
+    const text = JSON.stringify(payload, null, 2);
+
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      }
+    } catch (err) {
+      console.log("Custom theme export clipboard error", err);
+    }
+
+    openManualThemeExport(text);
+    haptic("light");
+    if (copied) {
+      setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " copied to clipboard.");
+    } else {
+      setStatus(customThemes.length + " custom theme" + (customThemes.length === 1 ? "" : "s") + " ready for manual copy.");
+    }
+  }
+
+  function openManualThemeImport(initialText) {
+    const existing = document.getElementById("themeImportFallback");
+    if (existing) existing.remove();
+
+    const wrap = document.createElement("div");
+    wrap.id = "themeImportFallback";
+    wrap.style.position = "fixed";
+    wrap.style.inset = "0";
+    wrap.style.zIndex = "221";
+    wrap.style.background = "rgba(0,0,0,.72)";
+    wrap.style.padding = "16px";
+    wrap.style.display = "flex";
+    wrap.style.alignItems = "center";
+    wrap.style.justifyContent = "center";
+
+    const card = document.createElement("div");
+    card.style.width = "min(680px, 100%)";
+    card.style.maxHeight = "min(80vh, 640px)";
+    card.style.background = "#0f0f12";
+    card.style.border = "1px solid rgba(255,255,255,.16)";
+    card.style.borderRadius = "18px";
+    card.style.padding = "14px";
+
+    const title = document.createElement("div");
+    title.textContent = "Paste custom themes JSON";
+    title.style.fontWeight = "800";
+    title.style.marginBottom = "10px";
+
+    const ta = document.createElement("textarea");
+    ta.value = initialText || "";
+    ta.placeholder = '{
+  "customThemes": [ ... ]
+}';
+    ta.style.width = "100%";
+    ta.style.height = "46vh";
+    ta.style.maxHeight = "420px";
+    ta.style.background = "#141419";
+    ta.style.color = "#fff";
+    ta.style.border = "1px solid rgba(255,255,255,.18)";
+    ta.style.borderRadius = "12px";
+    ta.style.padding = "10px";
+
+    const actions = document.createElement("div");
+    actions.style.display = "flex";
+    actions.style.gap = "8px";
+    actions.style.marginTop = "10px";
+
+    const importBtn = document.createElement("button");
+    importBtn.type = "button";
+    importBtn.textContent = "Importa";
+    importBtn.style.padding = "10px 14px";
+    importBtn.style.borderRadius = "10px";
+    importBtn.style.border = "1px solid rgba(255,255,255,.2)";
+    importBtn.style.background = "#2c3440";
+    importBtn.style.color = "#fff";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "Chiudi";
+    closeBtn.style.padding = "10px 14px";
+    closeBtn.style.borderRadius = "10px";
+    closeBtn.style.border = "1px solid rgba(255,255,255,.2)";
+    closeBtn.style.background = "#1f1f25";
+    closeBtn.style.color = "#fff";
+
+    importBtn.addEventListener("click", () => {
+      try {
+        const raw = JSON.parse(String(ta.value || "{}"));
+        applyImportedCustomThemes(raw);
+        wrap.remove();
+      } catch (parseErr) {
+        console.log("Custom theme manual import error", parseErr);
+        setStatus("Invalid JSON for custom themes.");
+      }
+    });
+
+    closeBtn.addEventListener("click", () => wrap.remove());
+    wrap.addEventListener("click", e => { if (e.target === wrap) wrap.remove(); });
+
+    actions.appendChild(importBtn);
+    actions.appendChild(closeBtn);
+    card.appendChild(title);
+    card.appendChild(ta);
+    card.appendChild(actions);
+    wrap.appendChild(card);
+    document.body.appendChild(wrap);
+
+    ta.focus();
+    ta.select();
+  }
+
+  async function importCustomThemesFromClipboard_DISABLED() {
+    let clipboardText = "";
+    try {
+      if (navigator.clipboard?.readText) {
+        clipboardText = await navigator.clipboard.readText();
+      }
+    } catch (err) {
+      console.log("Custom theme import clipboard error", err);
+    }
+
+    openManualThemeImport(clipboardText || "");
+    if (!clipboardText) {
+      setStatus("Paste JSON and press Import.");
+    }
+  }
+
   function toggleThemeMenu() {
     themeMenuOpen = !themeMenuOpen;
     $("themeMenu").classList.toggle("hidden", !themeMenuOpen);
@@ -4227,6 +4460,16 @@ input[type="range"] {
         savedBook.savedAt = Math.max(Number(savedBook.savedAt || 0), Number(saved.savedAt || 0), Date.now());
         currentBookId = savedBook.id;
         library.currentBookId = savedBook.id;
+      }
+    }
+
+    if (!library.currentBookId && library.books.length) {
+      const newestBook = library.books
+        .slice()
+        .sort((a, b) => Number(b.savedAt || 0) - Number(a.savedAt || 0))[0];
+      if (newestBook) {
+        currentBookId = newestBook.id;
+        library.currentBookId = newestBook.id;
       }
     }
 
