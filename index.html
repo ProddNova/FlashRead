@@ -2,6 +2,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" id="themeColorMeta" content="#08080b">
 <title>FlashRead</title>
@@ -1442,6 +1443,67 @@ input[type="range"] {
   font-weight:800;
 }
 
+.desktopBlock {
+  position:fixed;
+  inset:0;
+  z-index:10000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:linear-gradient(150deg,var(--bg),var(--bg2) 55%,var(--bg3));
+}
+
+.desktopBlockCard {
+  width:min(440px, calc(100vw - 32px));
+  border:1px solid var(--line);
+  border-radius:28px;
+  background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.045));
+  box-shadow:0 24px 70px rgba(0,0,0,.38);
+  padding:24px;
+}
+
+.desktopBlockKicker {
+  color:var(--accent);
+  font-size:12px;
+  font-weight:1000;
+  letter-spacing:.14em;
+  margin-bottom:12px;
+  text-transform:uppercase;
+}
+
+.desktopBlockTitle {
+  color:var(--ink);
+  font-size:32px;
+  line-height:.95;
+  font-weight:1000;
+  margin-bottom:14px;
+}
+
+.desktopBlockText {
+  color:var(--muted);
+  font-size:15px;
+  line-height:1.45;
+  margin:0 0 18px;
+}
+
+.desktopBlockBadge {
+  display:inline-flex;
+  min-height:38px;
+  align-items:center;
+  border:1px solid rgba(250,204,21,.35);
+  border-radius:999px;
+  background:var(--soft);
+  color:var(--accent);
+  font-size:12px;
+  font-weight:1000;
+  padding:0 14px;
+}
+
+body.desktopBlocked {
+  overflow:hidden;
+}
+
 @keyframes spin {
   to { transform:rotate(360deg); }
 }
@@ -1592,6 +1654,15 @@ input[type="range"] {
     <div class="loaderText" id="appLoaderText">Loading..</div>
   </div>
 </div>
+
+<section class="desktopBlock hidden" id="desktopBlock" aria-labelledby="desktopBlockTitle">
+  <div class="desktopBlockCard">
+    <div class="desktopBlockKicker">FlashRead mobile</div>
+    <div class="desktopBlockTitle" id="desktopBlockTitle">Apri da smartphone o tablet</div>
+    <p class="desktopBlockText">La lettura usa pressione, swipe e controlli touch. Su desktop e laptop FlashRead resta bloccata per evitare comandi incompleti.</p>
+    <div class="desktopBlockBadge">Dispositivo desktop rilevato</div>
+  </div>
+</section>
 
 <section class="modalShade hidden" id="settingsModal">
   <div class="sheet">
@@ -2077,6 +2148,8 @@ input[type="range"] {
   let authMode = "login";
   let authResolver = null;
   let authWorking = false;
+  let appBooted = false;
+  let appBooting = false;
 
   let library = normalizeLibrary({ books: [], currentBookId: null });
   let currentBookId = library.currentBookId || null;
@@ -2102,6 +2175,49 @@ input[type="range"] {
         window.screen.orientation.unlock();
       }
     } catch (e) {}
+  }
+
+  function isDesktopDeviceBlocked() {
+    const ua = String(navigator.userAgent || "");
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+    const iPadDesktopMode = /Macintosh/i.test(ua) && touchPoints > 1;
+    const mobileUA = iPadDesktopMode || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    const coarsePointer = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    const finePointer = !!(window.matchMedia && window.matchMedia("(pointer: fine)").matches);
+    const hoverPointer = !!(window.matchMedia && window.matchMedia("(hover: hover)").matches);
+    const touchCapable = touchPoints > 0 || "ontouchstart" in window || coarsePointer;
+
+    return !mobileUA && (!touchCapable || (finePointer && hoverPointer));
+  }
+
+  function setDesktopBlockVisible(visible) {
+    const block = $("desktopBlock");
+    if (!block) return;
+
+    block.classList.toggle("hidden", !visible);
+    document.body.classList.toggle("desktopBlocked", visible);
+
+    if (!visible) return;
+
+    hideLoader();
+
+    const auth = $("authModal");
+    const readerNode = $("reader");
+
+    if (auth) auth.classList.add("hidden");
+    if (readerNode && !readerNode.classList.contains("hidden")) stop(false);
+    if (readerNode) readerNode.classList.add("hidden");
+  }
+
+  function refreshDesktopGate() {
+    const blocked = isDesktopDeviceBlocked();
+    setDesktopBlockVisible(blocked);
+
+    if (!blocked && !appBooted && !appBooting) {
+      initializeApp();
+    }
+
+    return blocked;
   }
 
   setViewportVars();
@@ -4895,6 +5011,7 @@ input[type="range"] {
 
   function handleViewportChange() {
     setViewportVars();
+    if (refreshDesktopGate()) return;
     requestAnimationFrame(() => {
       applyReaderSettings();
       fitWord();
@@ -4913,6 +5030,7 @@ input[type="range"] {
     releaseOrientationLock();
     orientationFontFactor = window.matchMedia && window.matchMedia("(orientation: landscape)").matches ? 1.05 : 1;
     setViewportVars();
+    if (refreshDesktopGate()) return;
     setTimeout(() => {
       setViewportVars();
       applyReaderSettings();
@@ -4954,20 +5072,36 @@ input[type="range"] {
   }, 12000);
 
   async function initializeApp() {
-    authToken = String(localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "");
+    if (appBooted || appBooting) return;
 
-    if (!authToken) {
-      await requireManualAuth();
+    if (isDesktopDeviceBlocked()) {
+      setDesktopBlockVisible(true);
+      return;
     }
 
-    await runWithLoader("Avvio app…", async () => {
-      await loadRemoteBootstrap();
-      if (!currentUser) {
+    appBooting = true;
+    setDesktopBlockVisible(false);
+
+    try {
+      authToken = String(localStorage.getItem("FLASHREAD_AUTH_TOKEN") || "");
+
+      if (!authToken) {
         await requireManualAuth();
-        await loadRemoteBootstrap();
       }
-      loadInitialFields();
-    });
+
+      await runWithLoader("Avvio app…", async () => {
+        await loadRemoteBootstrap();
+        if (!currentUser) {
+          await requireManualAuth();
+          await loadRemoteBootstrap();
+        }
+        loadInitialFields();
+      });
+
+      appBooted = true;
+    } finally {
+      appBooting = false;
+    }
   }
 
   initializeApp();
